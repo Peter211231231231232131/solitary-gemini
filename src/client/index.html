@@ -205,19 +205,31 @@
 <body>
     <div id="login-screen">
         <div id="login-box">
-            <h1>Neon Runner</h1>
+            <h1 style="margin-top:0; color:#00ffff; text-shadow: 0 0 10px #00ffff;">NEON BASKETBALL</h1>
+            <p style="color:#aaa; font-size:14px; margin-bottom:20px;">Multiplayer High-Precision Prototype</p>
             <input type="text" id="username-input" placeholder="Enter Nickname" maxlength="15">
             <br>
-            <button id="play-button">Play</button>
+            <button id="play-button">JOIN GAME</button>
         </div>
     </div>
 
     <div id="chat-container">
         <div id="chat-messages"></div>
-        <input type="text" id="chat-input" placeholder="Press Enter to chat...">
+        <input type="text" id="chat-input" placeholder="Type message and press Enter...">
     </div>
 
-    <div id="instructions">Click to Capture Mouse</div>
+    <div id="instructions">
+        <div
+            style="background: rgba(0,0,0,0.8); padding: 40px; border-radius: 20px; border: 2px solid #00ffff; box-shadow: 0 0 30px #007777;">
+            <h2 style="margin-top:0;">READY TO PLAY?</h2>
+            <p>WASD to Move | Shift to Sprint | Space to Jump</p>
+            <p>Walk over the ball to Pick Up</p>
+            <p>LEFT CLICK to Shoot</p>
+            <button
+                style="margin-top:20px; padding:15px 40px; font-size:24px; cursor:pointer; background:#00ffff; border:none; border-radius:10px; font-weight:bold;">CLICK
+                TO START</button>
+        </div>
+    </div>
 
     <div id="mobile-controls">
         <div id="joystick-zone"></div>

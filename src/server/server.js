@@ -34,7 +34,7 @@ const TIMESTEP = 1 / 60;
 // Default Material
 const defaultMaterial = new CANNON.Material('default');
 const defaultContactMaterial = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
-    friction: 0.0,
+    friction: 0.5,
     restitution: 0.0
 });
 world.addContactMaterial(defaultContactMaterial);
@@ -96,6 +96,7 @@ world.addContactMaterial(ballGroundContact);
 // Scoring State
 let scores = { team1: 0, team2: 0 };
 let ballOwner = null; // socket.id
+let lastShotTime = 0;
 
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
@@ -106,9 +107,9 @@ io.on('connection', (socket) => {
     socket.on('joinGame', (data) => {
         if (players[socket.id]) return; // Already joined
 
-        // Create player body
-        const capsuleRadius = 0.4;
-        const capsuleHeight = 1.5;
+        // Use Box to match client AABB Exactly
+        const boxSize = new CANNON.Vec3(0.4, 0.8, 0.4); // Total size 0.8x1.6x0.8
+        const shape = new CANNON.Box(boxSize);
 
         const body = new CANNON.Body({
             mass: 1,
@@ -116,13 +117,7 @@ io.on('connection', (socket) => {
             material: defaultMaterial,
             fixedRotation: true
         });
-
-        const cylinderShape = new CANNON.Cylinder(capsuleRadius, capsuleRadius, capsuleHeight, 8);
-        body.addShape(cylinderShape, new CANNON.Vec3(0, 0, 0));
-        const topSphere = new CANNON.Sphere(capsuleRadius);
-        body.addShape(topSphere, new CANNON.Vec3(0, capsuleHeight / 2, 0));
-        const bottomSphere = new CANNON.Sphere(capsuleRadius);
-        body.addShape(bottomSphere, new CANNON.Vec3(0, -capsuleHeight / 2, 0));
+        body.addShape(shape);
 
         body.linearDamping = 0.0;
         world.addBody(body);
@@ -149,6 +144,7 @@ io.on('connection', (socket) => {
         if (ballOwner === socket.id) {
             const p = players[socket.id];
             ballOwner = null;
+            lastShotTime = Date.now();
 
             // Release ball at player's head height + forward
             const forward = new CANNON.Vec3(
@@ -243,8 +239,8 @@ setInterval(() => {
             p.body.velocity.y = 7;
         }
 
-        // Ball Pickup (if no owner)
-        if (!ballOwner) {
+        // Ball Pickup (if no owner and cooldown passed)
+        if (!ballOwner && (Date.now() - lastShotTime > 500)) {
             const dist = p.body.position.distanceTo(ballBody.position);
             if (dist < 1.5) {
                 ballOwner = id;

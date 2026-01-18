@@ -142,6 +142,34 @@ const ballMesh = new THREE.Mesh(ballGeo, ballMat);
 ballMesh.castShadow = true;
 scene.add(ballMesh);
 
+// Hoops Rendering
+const hoopGroup = new THREE.Group();
+const createHoop = (x, z, color) => {
+    // Pole
+    const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, 3);
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+    const pole = new THREE.Mesh(poleGeo, poleMat);
+    pole.position.set(x, 1.5, z);
+    scene.add(pole);
+
+    // Backboard
+    const bbGeo = new THREE.BoxGeometry(0.1, 1.2, 1.8);
+    const bbMat = new THREE.MeshStandardMaterial({ color: 0xffffff });
+    const bb = new THREE.Mesh(bbGeo, bbMat);
+    bb.position.set(x + (x < 0 ? 0.1 : -0.1), 3.5, z);
+    scene.add(bb);
+
+    // Rim
+    const rimGeo = new THREE.TorusGeometry(0.3, 0.05, 8, 24);
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+    const rim = new THREE.Mesh(rimGeo, rimMat);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.set(x + (x < 0 ? 0.4 : -0.4), 3.0, z);
+    scene.add(rim);
+};
+createHoop(-13.5, 0, 0xff0000); // Team 1 Side
+createHoop(13.5, 0, 0x0000ff);  // Team 2 Side
+
 // Score HUD
 const scoreHUD = document.createElement('div');
 scoreHUD.id = 'score-hud';
@@ -332,17 +360,17 @@ function attemptLock() {
 
 // Interact with Login
 function joinGame() {
-    const name = usernameInput.value.trim() || "Player";
+    const name = usernameInput.value.trim() || `Player_${Math.floor(Math.random() * 900) + 100}`;
     if (name) {
         myName = name;
         loginScreen.style.display = 'none';
         isLoggedIn = true;
         socket.emit('joinGame', { name: myName });
 
-        // Show instructions now that we are in-game
-        // The lock listener will hide them if attemptLock() succeeds
-        instructions.style.display = 'block';
-        attemptLock();
+        // Show instructions (the "Click to Start" screen)
+        instructions.style.display = 'flex';
+        instructions.style.alignItems = 'center';
+        instructions.style.justifyContent = 'center';
     }
 }
 
@@ -461,13 +489,20 @@ socket.on('init', (data) => {
 
     // Create my own mesh (hidden by default)
     let myColor = 0xff0000;
-    if (data.players[myId]) {
+    let startPos = new THREE.Vector3(0, 5, 0);
+
+    if (data.players && data.players[myId]) {
         myColor = data.players[myId].color;
+        startPos.copy(data.players[myId].position);
     }
+
+    // Set initial logical and visual positions immediately to prevent jump
+    predictedPosition.copy(startPos);
+    visualPosition.copy(startPos);
 
     myPlayerMesh = new Humanoid(myColor);
     myPlayerMesh.mesh.visible = false; // Start in 1st person
-    myPlayerMesh.lastPos = new THREE.Vector3();
+    myPlayerMesh.lastPos = new THREE.Vector3().copy(startPos);
     scene.add(myPlayerMesh.mesh);
 
     // Spawn existing players
@@ -498,7 +533,21 @@ socket.on('state', (state) => {
 
     // 1. Sync Ball
     if (state.ball) {
-        ballMesh.position.copy(state.ball.position);
+        const isOwner = state.ball.owner === myId;
+        // If I'm NOT the owner, sync ball pos from server
+        // If I AM the owner, the local loop handles positioning for me (less jitter)
+        if (!isOwner) {
+            ballMesh.position.copy(state.ball.position);
+        } else {
+            // Owner prediction: ball stays in front of us
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            forward.y = 0; forward.normalize();
+            ballMesh.position.set(
+                predictedPosition.x + forward.x * 0.5,
+                predictedPosition.y + 0.2,
+                predictedPosition.z + forward.z * 0.5
+            );
+        }
     }
 
     // 2. Sync Score
@@ -685,7 +734,7 @@ function animate() {
 
     // 2. VISUAL SMOOTHING (Per-frame)
     // Lerp towards the definitive logical position
-    visualPosition.lerp(predictedPosition, 0.4);
+    visualPosition.lerp(predictedPosition, 0.2);
 
     // Update Visual Objects
     updateCamera(visualPosition);
