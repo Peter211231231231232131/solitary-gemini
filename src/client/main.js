@@ -191,11 +191,14 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Environment
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const boxMat = new THREE.MeshStandardMaterial({ color: 0x808080 });
+
 socket.on('init', (data) => {
     myId = data.id;
 
     // Create my own mesh (hidden by default)
-    // Find my color from data.players
     let myColor = 0xff0000;
     if (data.players[myId]) {
         myColor = data.players[myId].color;
@@ -206,7 +209,18 @@ socket.on('init', (data) => {
     myPlayerMesh.lastPos = new THREE.Vector3();
     scene.add(myPlayerMesh.mesh);
 
-    // ... (obstacles)
+    // Spawn Obstacles
+    if (data.obstacles) {
+        data.obstacles.forEach(obs => {
+            const mesh = new THREE.Mesh(boxGeo, boxMat);
+            mesh.position.set(obs.position.x, obs.position.y, obs.position.z);
+            mesh.scale.set(obs.size.x, obs.size.y, obs.size.z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+        });
+    }
+
     // Spawn existing players
     for (const id in data.players) {
         if (id !== myId) {
@@ -247,19 +261,11 @@ socket.on('state', (state) => {
 
             // Camera Logic
             if (isThirdPerson) {
-                // Simple 3rd person: Pull camera back 4 units from eyes
                 const offset = new THREE.Vector3(0, 0, 4);
                 offset.applyQuaternion(camera.quaternion);
-
-                // Position = Player Pos + Eye Height + Offset
-                // Note: Player pos from server is center of physics body (y=5). 
-                // We want eye level to be slightly above that? No, physics body is y=5. 
-                // Wait, body spawn is (0,5,0). 
-
                 camera.position.copy(state[id].position).add(offset);
             } else {
                 camera.position.copy(state[id].position);
-                // camera.position.y += 0.5; // Optional adjusting
             }
 
         } else {
@@ -268,26 +274,27 @@ socket.on('state', (state) => {
             }
             if (players[id]) {
                 const humanoid = players[id];
-                // Interpolate position
-                humanoid.mesh.position.copy(state[id].position);
-                // Apply Y offset to align feet with ground (since server position is center mass)
-                humanoid.mesh.position.y -= 1;
+                const targetPos = new THREE.Vector3().copy(state[id].position);
+                targetPos.y -= 1;
 
-                // Update Rotation (Yaw)
+                // Smooth interpolation (lerp) for other players
+                humanoid.mesh.position.lerp(targetPos, 0.2);
+
+                // Smooth rotation interpolation
                 if (state[id].yaw !== undefined) {
-                    humanoid.mesh.rotation.y = state[id].yaw;
+                    const targetYaw = state[id].yaw;
+                    const currentYaw = humanoid.mesh.rotation.y;
+                    // Lerp with angle wrapping
+                    let diff = targetYaw - currentYaw;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    humanoid.mesh.rotation.y += diff * 0.2;
                 }
 
-                // Animation
-                // Check if moving
-                const velocity = new THREE.Vector3(
-                    state[id].position.x - humanoid.lastPos.x,
-                    0,
-                    state[id].position.z - humanoid.lastPos.z
-                ).length();
-
+                // Animation based on velocity
+                const velocity = humanoid.mesh.position.distanceTo(humanoid.lastPos);
                 humanoid.update(clock.getElapsedTime(), velocity > 0.01);
-                humanoid.lastPos.copy(state[id].position);
+                humanoid.lastPos.copy(humanoid.mesh.position);
             }
         }
     }
