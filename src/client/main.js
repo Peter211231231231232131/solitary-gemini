@@ -173,6 +173,7 @@ import { Humanoid } from './Humanoid.js';
 
 // Players
 const players = {};
+let myId = null;
 // Removed sphere geometry/material as we use Humanoid class now
 
 // ... (code)
