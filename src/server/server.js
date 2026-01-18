@@ -140,19 +140,26 @@ setInterval(() => {
     // Apply inputs
     for (const id in players) {
         const p = players[id];
-        const inputSpeed = 8; // Slightly slower for more control
+
+        // Speed modifiers
+        let speed = 8; // Base speed
+        if (p.input.sprint) {
+            speed = 12; // Sprint speed
+        } else if (p.input.crouch) {
+            speed = 4; // Crouch speed (slower)
+        }
 
         // Preserve Y velocity (gravity)
         const currentY = p.body.velocity.y;
 
         // Set horizontal velocity from input
-        p.body.velocity.set(p.input.x * inputSpeed, currentY, p.input.z * inputSpeed);
+        p.body.velocity.set(p.input.x * speed, currentY, p.input.z * speed);
 
         // Jump with better ground check (y position near ground)
-        // Ground is at y=0, capsule bottom is at body.y - 1.15 (half height + sphere)
+        // Cannot jump while crouching
         const isGrounded = p.body.position.y < 2.0 && Math.abs(currentY) < 0.5;
-        if (p.input.jump && isGrounded) {
-            p.body.velocity.y = 7; // Higher jump
+        if (p.input.jump && isGrounded && !p.input.crouch) {
+            p.body.velocity.y = 7; // Jump velocity
         }
     }
 

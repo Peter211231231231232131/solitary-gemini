@@ -60,7 +60,9 @@ const moveState = {
     backward: false,
     left: false,
     right: false,
-    jump: false
+    jump: false,
+    sprint: false,
+    crouch: false
 };
 
 const onKeyDown = (event) => {
@@ -74,6 +76,9 @@ const onKeyDown = (event) => {
         case 'ArrowRight':
         case 'KeyD': moveState.right = true; break;
         case 'Space': moveState.jump = true; break;
+        case 'ShiftLeft':
+        case 'ShiftRight': moveState.sprint = true; break;
+        case 'KeyC': moveState.crouch = true; break;
     }
 };
 
@@ -88,6 +93,9 @@ const onKeyUp = (event) => {
         case 'ArrowRight':
         case 'KeyD': moveState.right = false; break;
         case 'Space': moveState.jump = false; break;
+        case 'ShiftLeft':
+        case 'ShiftRight': moveState.sprint = false; break;
+        case 'KeyC': moveState.crouch = false; break;
     }
 };
 
@@ -365,6 +373,8 @@ function animate() {
             x: direction.x,
             z: direction.z,
             jump: moveState.jump,
+            sprint: moveState.sprint,
+            crouch: moveState.crouch,
             yaw: yaw
         });
     }
