@@ -63,16 +63,30 @@ for (let i = 0; i < 20; i++) {
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    // Create player body
-    const radius = 1;
-    const shape = new CANNON.Sphere(radius);
+    // Create player body - Capsule shape (cylinder + 2 spheres at ends)
+    // Capsule: height 1.5, radius 0.4
+    const capsuleRadius = 0.4;
+    const capsuleHeight = 1.5; // Total height = capsuleHeight + 2 * capsuleRadius
+
     const body = new CANNON.Body({
         mass: 1, // kg
-        position: new CANNON.Vec3(0, 10, 0), // Spawn higher
+        position: new CANNON.Vec3(0, 5, 0), // Spawn position
         material: defaultMaterial,
         fixedRotation: true
     });
-    body.addShape(shape);
+
+    // Cylinder for the middle
+    const cylinderShape = new CANNON.Cylinder(capsuleRadius, capsuleRadius, capsuleHeight, 8);
+    body.addShape(cylinderShape, new CANNON.Vec3(0, 0, 0));
+
+    // Sphere at top
+    const topSphere = new CANNON.Sphere(capsuleRadius);
+    body.addShape(topSphere, new CANNON.Vec3(0, capsuleHeight / 2, 0));
+
+    // Sphere at bottom
+    const bottomSphere = new CANNON.Sphere(capsuleRadius);
+    body.addShape(bottomSphere, new CANNON.Vec3(0, -capsuleHeight / 2, 0));
+
     body.linearDamping = 0.9;
     world.addBody(body);
 
