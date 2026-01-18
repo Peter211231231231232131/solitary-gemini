@@ -254,31 +254,24 @@ let lastServerPosition = new THREE.Vector3(0, 5, 0);
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
-            // Server reconciliation - update predicted position to match server
-            lastServerPosition.copy(state[id].position);
-
-            // Snap to server if too far off (reconciliation)
-            const drift = predictedPosition.distanceTo(lastServerPosition);
-            if (drift > 2) {
-                predictedPosition.copy(lastServerPosition);
-            } else {
-                // Slowly correct towards server position
-                predictedPosition.lerp(lastServerPosition, 0.1);
-            }
+            // Server position is authoritative - use it directly (no lerp delay)
+            const serverPos = new THREE.Vector3().copy(state[id].position);
+            predictedPosition.copy(serverPos);
 
             if (myPlayerMesh) {
-                myPlayerMesh.mesh.position.copy(predictedPosition);
+                myPlayerMesh.mesh.position.copy(serverPos);
                 myPlayerMesh.mesh.position.y -= 1;
                 myPlayerMesh.mesh.rotation.y = camera.rotation.y;
 
-                // Animation based on movement
-                const velocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
-                myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01);
-                myPlayerMesh.lastPos.copy(predictedPosition);
+                // Animation based on movement AND crouch
+                const velocity = serverPos.distanceTo(myPlayerMesh.lastPos);
+                const isCrouching = moveState.crouch;
+                myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
+                myPlayerMesh.lastPos.copy(serverPos);
             }
 
-            // Camera follows predicted position (not server position)
-            updateCamera(predictedPosition);
+            // Camera follows server position directly (no prediction delay)
+            updateCamera(serverPos);
 
         } else {
             if (!players[id]) {
@@ -381,18 +374,6 @@ function animate() {
         if (moveState.left) direction.sub(right);
 
         if (direction.length() > 0) direction.normalize();
-
-        // Speed calculation
-        let speed = 8;
-        if (moveState.sprint) speed = 12;
-        else if (moveState.crouch) speed = 4;
-
-        // CLIENT-SIDE PREDICTION: Apply movement locally
-        predictedPosition.x += direction.x * speed * DELTA;
-        predictedPosition.z += direction.z * speed * DELTA;
-
-        // Update camera immediately with predicted position
-        updateCamera(predictedPosition);
 
         // Send input to server
         const yaw = camera.rotation.y;
