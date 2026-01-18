@@ -20,8 +20,8 @@ function checkCollisions(pos, vel, dt) {
     const halfWidth = PLAYER_RADIUS;
 
     // Resolve Y first (floor)
-    if (pos.y < 1.15) {
-        pos.y = 1.15;
+    if (pos.y < 0.8) {
+        pos.y = 0.8;
         vel.y = 0;
     }
 
@@ -734,7 +734,7 @@ function animate() {
 
     // 2. VISUAL SMOOTHING (Per-frame)
     // Lerp towards the definitive logical position
-    visualPosition.lerp(predictedPosition, 0.2);
+    visualPosition.lerp(predictedPosition, 0.4);
 
     // Update Visual Objects
     updateCamera(visualPosition);

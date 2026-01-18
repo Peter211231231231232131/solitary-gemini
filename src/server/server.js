@@ -34,7 +34,7 @@ const TIMESTEP = 1 / 60;
 // Default Material
 const defaultMaterial = new CANNON.Material('default');
 const defaultContactMaterial = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
-    friction: 0.5,
+    friction: 0.0,
     restitution: 0.0
 });
 world.addContactMaterial(defaultContactMaterial);
