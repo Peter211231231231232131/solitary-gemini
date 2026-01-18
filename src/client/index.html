@@ -1,11 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Multiplayer FPS</title>
     <style>
-        body { margin: 0; overflow: hidden; }
+        body {
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+
         #instructions {
             position: absolute;
             top: 50%;
@@ -15,15 +23,85 @@
             font-family: sans-serif;
             font-size: 24px;
             text-align: center;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0, 0, 0, 0.5);
             padding: 20px;
             border-radius: 10px;
             pointer-events: none;
+            z-index: 10;
+        }
+
+        #mobile-controls {
+            display: none;
+            /* Hidden by default, shown on touch devices via JS or media query */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* Let touches pass through to canvas/joysticks */
+            z-index: 5;
+        }
+
+        #joystick-zone {
+            position: absolute;
+            bottom: 50px;
+            left: 50px;
+            width: 150px;
+            height: 150px;
+            pointer-events: auto;
+        }
+
+        #jump-button {
+            position: absolute;
+            bottom: 50px;
+            right: 50px;
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: sans-serif;
+            font-weight: bold;
+            color: black;
+            pointer-events: auto;
+            border: 2px solid white;
+        }
+
+        #look-zone {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 100%;
+            pointer-events: auto;
+            touch-action: none;
+        }
+
+        @media (pointer: coarse) {
+            #mobile-controls {
+                display: block;
+            }
+
+            #instructions {
+                display: none;
+            }
+
+            /* Hide click to play on mobile */
         }
     </style>
 </head>
+
 <body>
     <div id="instructions">Click to Play</div>
+    <div id="mobile-controls">
+        <div id="joystick-zone"></div>
+        <div id="look-zone"></div> <!-- Right side of screen for looking -->
+        <div id="jump-button">JUMP</div>
+    </div>
     <script type="module" src="./main.js"></script>
 </body>
+
 </html>

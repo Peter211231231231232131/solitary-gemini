@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
+import nipplejs from 'nipplejs';
 
 const socket = io();
 
@@ -91,6 +92,79 @@ const onKeyUp = (event) => {
 
 document.addEventListener('keydown', onKeyDown);
 document.addEventListener('keyup', onKeyUp);
+
+// Mobile Controls
+const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+const rotationSpeed = 0.005;
+
+if (isMobile) {
+    const joystickZone = document.getElementById('joystick-zone');
+    const manager = nipplejs.create({
+        zone: joystickZone,
+        mode: 'static',
+        position: { left: '50%', top: '50%' },
+        color: 'white'
+    });
+
+    manager.on('move', (evt, data) => {
+        const forward = data.vector.y;
+        const turn = data.vector.x;
+
+        // Reset state
+        moveState.forward = forward > 0.5;
+        moveState.backward = forward < -0.5;
+        moveState.left = turn < -0.5;
+        moveState.right = turn > 0.5;
+    });
+
+    manager.on('end', () => {
+        moveState.forward = false;
+        moveState.backward = false;
+        moveState.left = false;
+        moveState.right = false;
+    });
+
+    // Jump Button
+    const jumpBtn = document.getElementById('jump-button');
+    jumpBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        moveState.jump = true;
+    });
+    jumpBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        moveState.jump = false;
+    });
+
+    // Look Logic (Touch Drag on right side)
+    const lookZone = document.getElementById('look-zone');
+    let previousTouchX = 0;
+    let previousTouchY = 0;
+
+    lookZone.addEventListener('touchstart', (e) => {
+        previousTouchX = e.touches[0].screenX;
+        previousTouchY = e.touches[0].screenY;
+    }, { passive: false });
+
+    lookZone.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        const movementX = touch.screenX - previousTouchX;
+        const movementY = touch.screenY - previousTouchY;
+
+        previousTouchX = touch.screenX;
+        previousTouchY = touch.screenY;
+
+        // Apply rotation to camera directly since PointerLock is not active on mobile
+        camera.rotation.y -= movementX * rotationSpeed;
+        camera.rotation.x -= movementY * rotationSpeed;
+
+        // Clamp vertical rotation (pitch)
+        camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+
+        // For PointerLockControls, we usually update the object, but if we aren't locked, we modify camera directly.
+        // However, movement logic relies on camera.quaternion, so this should work.
+    }, { passive: false });
+}
 
 // Players
 const players = {};
