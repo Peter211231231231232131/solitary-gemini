@@ -216,6 +216,27 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('steal', (data) => {
+        const thief = players[socket.id];
+        const victimId = data.targetId;
+        const victim = players[victimId];
+
+        if (thief && victim && ballOwner === victimId) {
+            const dist = thief.body.position.distanceTo(victim.body.position);
+            if (dist < 2.5) {
+                ballOwner = socket.id;
+
+                // Disable ball physics while holding
+                ballBody.type = CANNON.Body.KINEMATIC;
+                ballBody.collisionFilterGroup = GROUP_NONE;
+                ballBody.collisionFilterMask = GROUP_NONE;
+                ballBody.velocity.set(0, 0, 0);
+
+                io.emit('notification', `${thief.name} stole the ball from ${victim.name}!`);
+            }
+        }
+    });
+
     socket.on('chatMessage', (text) => {
         if (players[socket.id]) {
             const name = players[socket.id].name;

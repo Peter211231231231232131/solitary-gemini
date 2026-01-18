@@ -226,10 +226,40 @@ controls.addEventListener('unlock', () => {
     }
 });
 
-// Shooting Input
+// Shooting & Stealing Input
+const raycaster = new THREE.Raycaster();
 document.addEventListener('mousedown', (e) => {
     if (isLoggedIn && controls.isLocked && e.button === 0) {
-        socket.emit('shoot');
+        // If I don't have the ball, try to steal
+        const ballState = currentGameState ? currentGameState.ball : null;
+        if (ballState && ballState.owner !== myId) {
+            // Check if we are aiming at the owner
+            raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+
+            // Get all player meshes
+            const playerMeshes = Object.entries(players).map(([id, p]) => {
+                p.mesh.userData = { playerId: id };
+                return p.mesh;
+            });
+
+            const intersects = raycaster.intersectObjects(playerMeshes, true);
+            if (intersects.length > 0) {
+                // Find top level humanoid mesh
+                let obj = intersects[0].object;
+                while (obj.parent && !obj.userData.playerId) {
+                    obj = obj.parent;
+                }
+
+                if (obj.userData.playerId) {
+                    socket.emit('steal', { targetId: obj.userData.playerId });
+                }
+            } else {
+                // Normal shoot if we have it, or just empty click
+                socket.emit('shoot');
+            }
+        } else {
+            socket.emit('shoot');
+        }
     }
 });
 
@@ -547,9 +577,11 @@ let inputSequence = 0;
 let pendingInputs = [];
 let predictedPosition = new THREE.Vector3(0, 5, 0);
 let predictedVelocity = new THREE.Vector3(0, 0, 0);
+let currentGameState = null;
 
 socket.on('state', (state) => {
     if (!state.players) return;
+    currentGameState = state;
 
     // 1. Sync Ball
     if (state.ball) {
@@ -652,7 +684,7 @@ function updateCamera(playerPos) {
             playerPos.z - forward.z * distance
         );
     } else {
-        camera.position.copy(playerPos);
+        camera.position.set(playerPos.x, playerPos.y + 0.7, playerPos.z);
     }
 }
 
