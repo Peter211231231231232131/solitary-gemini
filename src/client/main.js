@@ -119,16 +119,18 @@ scene.add(ground);
 const controls = new PointerLockControls(camera, document.body);
 const instructions = document.getElementById('instructions');
 
-document.addEventListener('click', () => {
-    controls.lock();
-});
+// Removed redundant click listener here.
+// Unified locking is handled in attemptLock() and its listeners below.
 
 controls.addEventListener('lock', () => {
     instructions.style.display = 'none';
 });
 
 controls.addEventListener('unlock', () => {
-    instructions.style.display = 'block';
+    // Show instructions only if not chatting
+    if (!isChatOpen) {
+        instructions.style.display = 'block';
+    }
 });
 
 // Input handling
@@ -275,6 +277,20 @@ let isLoggedIn = false;
 let myName = "Player";
 let isChatOpen = false;
 
+// Pointer Lock Helper
+function attemptLock() {
+    if (isLoggedIn && !isChatOpen) {
+        controls.lock();
+    }
+}
+
+// Global click to re-lock
+document.addEventListener('click', () => {
+    if (isLoggedIn && !isChatOpen && !controls.isLocked) {
+        attemptLock();
+    }
+});
+
 // Interact with Login
 function joinGame() {
     const name = usernameInput.value.trim() || "Player";
@@ -283,7 +299,10 @@ function joinGame() {
         loginScreen.style.display = 'none';
         isLoggedIn = true;
         socket.emit('joinGame', { name: myName });
-        controls.lock();
+
+        // Use a slight timeout for the first lock after UI transition
+        // to ensure the browser registers the click/keypress as the source
+        setTimeout(() => attemptLock(), 10);
     }
 }
 
@@ -333,7 +352,9 @@ chatInput.addEventListener('keydown', (e) => {
         chatInput.style.display = 'none';
         chatInput.blur();
         isChatOpen = false;
-        controls.lock();
+
+        // Return focus to game
+        setTimeout(() => attemptLock(), 50);
     }
 
     // Stop movement keys but let ENTER bubble or handle it above
