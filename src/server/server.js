@@ -26,6 +26,12 @@ const PORT = process.env.PORT || 3000;
 const world = new CANNON.World();
 world.gravity.set(0, -9.82, 0);
 
+// Collision Filtering
+const GROUP_PLAYER = 1;
+const GROUP_BALL = 2;
+const GROUP_STATIC = 4;
+const GROUP_NONE = 0;
+
 // Game State
 const players = {};
 const obstacles = [];
@@ -44,6 +50,8 @@ const groundShape = new CANNON.Plane();
 const groundBody = new CANNON.Body({ mass: 0, material: defaultMaterial });
 groundBody.addShape(groundShape);
 groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+groundBody.collisionFilterGroup = GROUP_STATIC;
+groundBody.collisionFilterMask = GROUP_PLAYER | GROUP_BALL;
 world.addBody(groundBody);
 
 // Basketball Court & Hoops
@@ -65,6 +73,8 @@ hoops.forEach(hoop => {
     const bbBody = new CANNON.Body({ mass: 0, material: defaultMaterial });
     bbBody.addShape(bbShape);
     bbBody.position.set(hoop.position.x + (hoop.team === 1 ? -0.1 : 0.1), hoop.position.y + 0.5, hoop.position.z);
+    bbBody.collisionFilterGroup = GROUP_STATIC;
+    bbBody.collisionFilterMask = GROUP_PLAYER | GROUP_BALL;
     world.addBody(bbBody);
     obstacles.push({ position: bbBody.position, size: bbSize, id: `${hoop.id}_bb` });
 
@@ -82,6 +92,8 @@ hoops.forEach(hoop => {
         const rimZ = hoop.position.z + Math.sin(theta) * rimRadius;
         rimPartBody.position.set(rimX, hoop.position.y, rimZ);
         rimPartBody.quaternion.setFromEuler(0, -theta, 0);
+        rimPartBody.collisionFilterGroup = GROUP_STATIC;
+        rimPartBody.collisionFilterMask = GROUP_BALL;
         world.addBody(rimPartBody);
     }
 });
@@ -95,7 +107,9 @@ const ballBody = new CANNON.Body({
     shape: new CANNON.Sphere(ballRadius),
     material: ballMaterial,
     linearDamping: 0.1,
-    angularDamping: 0.1
+    angularDamping: 0.1,
+    collisionFilterGroup: GROUP_BALL,
+    collisionFilterMask: GROUP_PLAYER | GROUP_STATIC
 });
 world.addBody(ballBody);
 
@@ -144,6 +158,8 @@ io.on('connection', (socket) => {
         body.addShape(shape);
 
         body.linearDamping = 0.0;
+        body.collisionFilterGroup = GROUP_PLAYER;
+        body.collisionFilterMask = GROUP_STATIC | GROUP_BALL;
         world.addBody(body);
 
         const name = data.name || "Player";
@@ -169,6 +185,11 @@ io.on('connection', (socket) => {
             const p = players[socket.id];
             ballOwner = null;
             lastShotTime = Date.now();
+
+            // Re-enable ball physics
+            ballBody.type = CANNON.Body.DYNAMIC;
+            ballBody.collisionFilterGroup = GROUP_BALL;
+            ballBody.collisionFilterMask = GROUP_PLAYER | GROUP_STATIC;
 
             // Release ball at player's head height + forward
             const forward = new CANNON.Vec3(
@@ -270,6 +291,12 @@ setInterval(() => {
             if (dist < 1.5) {
                 ballOwner = id;
                 io.emit('notification', `${p.name} picked up the ball!`);
+
+                // Disable ball physics while holding
+                ballBody.type = CANNON.Body.KINEMATIC;
+                ballBody.collisionFilterGroup = GROUP_NONE;
+                ballBody.collisionFilterMask = GROUP_NONE;
+                ballBody.velocity.set(0, 0, 0);
             }
         }
     }
