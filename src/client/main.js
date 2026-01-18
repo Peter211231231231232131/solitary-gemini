@@ -322,17 +322,23 @@ socket.on('state', (state) => {
 
 function updateCamera(playerPos) {
     if (isThirdPerson) {
-        const yaw = camera.rotation.y;
         const distance = 5;
         const height = 2;
 
-        const offsetX = Math.sin(yaw) * distance;
-        const offsetZ = Math.cos(yaw) * distance;
+        // Get camera's forward direction (where it's looking)
+        const forward = new THREE.Vector3(0, 0, -1);
+        forward.applyQuaternion(camera.quaternion);
 
+        // Flatten to horizontal plane (ignore pitch for camera position)
+        forward.y = 0;
+        forward.normalize();
+
+        // Camera position = player position - forward * distance + height
+        // This puts camera BEHIND where the player is looking
         camera.position.set(
-            playerPos.x + offsetX,
+            playerPos.x - forward.x * distance,
             playerPos.y + height,
-            playerPos.z + offsetZ
+            playerPos.z - forward.z * distance
         );
     } else {
         camera.position.copy(playerPos);
