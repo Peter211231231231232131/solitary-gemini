@@ -5,6 +5,83 @@ import nipplejs from 'nipplejs';
 
 const socket = io();
 
+// Physics Constants
+const DELTA = 1 / 60;
+const GRAVITY = 9.82;
+const JUMP_FORCE = 7.0;
+const PLAYER_RADIUS = 0.4;
+const PLAYER_HEIGHT = 1.6;
+
+// World Awareness
+let worldObstacles = []; // Array of AABBs
+
+function checkCollisions(pos, vel, dt) {
+    const halfWidth = PLAYER_RADIUS;
+
+    // Resolve Y first (floor)
+    if (pos.y < 1.15) {
+        pos.y = 1.15;
+        vel.y = 0;
+    }
+
+    // Resolve X and Z against world boxes
+    for (const box of worldObstacles) {
+        const pMin = { x: pos.x - halfWidth, y: pos.y - 1.1, z: pos.z - halfWidth };
+        const pMax = { x: pos.x + halfWidth, y: pos.y + 0.5, z: pos.z + halfWidth };
+
+        const bMin = box.min;
+        const bMax = box.max;
+
+        if (pMin.x < bMax.x && pMax.x > bMin.x &&
+            pMin.y < bMax.y && pMax.y > bMin.y &&
+            pMin.z < bMax.z && pMax.z > bMin.z) {
+
+            const dx1 = bMax.x - pMin.x;
+            const dx2 = pMax.x - bMin.x;
+            const dy1 = bMax.y - pMin.y;
+            const dy2 = pMax.y - bMin.y;
+            const dz1 = bMax.z - pMin.z;
+            const dz2 = pMax.z - bMin.z;
+
+            const minX = Math.min(dx1, dx2);
+            const minY = Math.min(dy1, dy2);
+            const minZ = Math.min(dz1, dz2);
+
+            if (minX < minY && minX < minZ) {
+                pos.x += (dx1 < dx2) ? dx1 : -dx2;
+            } else if (minZ < minX && minZ < minY) {
+                pos.z += (dz1 < dz2) ? dz1 : -dz2;
+            } else {
+                if (vel.y < 0) {
+                    pos.y += dy1;
+                    vel.y = 0;
+                } else {
+                    pos.y -= dy2;
+                    vel.y = 0;
+                }
+            }
+        }
+    }
+}
+
+function applyMovement(position, velocity, input, delta) {
+    const speed = input.speed;
+    velocity.x = input.x * speed;
+    velocity.z = input.z * speed;
+    velocity.y -= GRAVITY * delta;
+
+    const isGrounded = position.y < 1.25 || (Math.abs(velocity.y) < 0.1);
+    if (input.jump && isGrounded && !input.crouch) {
+        velocity.y = JUMP_FORCE;
+    }
+
+    position.x += velocity.x * delta;
+    position.y += velocity.y * delta;
+    position.z += velocity.z * delta;
+
+    checkCollisions(position, velocity, delta);
+}
+
 // Scene
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB); // Sky blue
@@ -280,6 +357,32 @@ document.addEventListener('keydown', (e) => {
 socket.on('init', (data) => {
     myId = data.id;
 
+    // Store obstacles for prediction
+    if (data.obstacles) {
+        worldObstacles = data.obstacles.map(obs => {
+            const min = {
+                x: obs.position.x - obs.size.x / 2,
+                y: obs.position.y - obs.size.y / 2,
+                z: obs.position.z - obs.size.z / 2
+            };
+            const max = {
+                x: obs.position.x + obs.size.x / 2,
+                y: obs.position.y + obs.size.y / 2,
+                z: obs.position.z + obs.size.z / 2
+            };
+            return { min, max };
+        });
+
+        data.obstacles.forEach(obs => {
+            const mesh = new THREE.Mesh(boxGeo, boxMat);
+            mesh.position.set(obs.position.x, obs.position.y, obs.position.z);
+            mesh.scale.set(obs.size.x, obs.size.y, obs.size.z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+        });
+    }
+
     // Create my own mesh (hidden by default)
     let myColor = 0xff0000;
     if (data.players[myId]) {
@@ -290,18 +393,6 @@ socket.on('init', (data) => {
     myPlayerMesh.mesh.visible = false; // Start in 1st person
     myPlayerMesh.lastPos = new THREE.Vector3();
     scene.add(myPlayerMesh.mesh);
-
-    // Spawn Obstacles
-    if (data.obstacles) {
-        data.obstacles.forEach(obs => {
-            const mesh = new THREE.Mesh(boxGeo, boxMat);
-            mesh.position.set(obs.position.x, obs.position.y, obs.position.z);
-            mesh.scale.set(obs.size.x, obs.size.y, obs.size.z);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            scene.add(mesh);
-        });
-    }
 
     // Spawn existing players
     for (const id in data.players) {
@@ -325,44 +416,13 @@ let inputSequence = 0;
 let pendingInputs = [];
 let predictedPosition = new THREE.Vector3(0, 5, 0);
 let predictedVelocity = new THREE.Vector3(0, 0, 0);
-const DELTA = 1 / 60;
-const GRAVITY = 9.82;
-const JUMP_FORCE = 7.0;
-
-// Reusable movement logic
-function applyMovement(position, velocity, input, delta) {
-    // Horizontal movement
-    const speed = input.speed;
-    velocity.x = input.x * speed;
-    velocity.z = input.z * speed;
-
-    // Vertical movement (Gravity)
-    velocity.y -= GRAVITY * delta;
-
-    // Jump logic (simple ground check for prediction)
-    const isGrounded = position.y < 1.2 && Math.abs(velocity.y) < 1.0;
-    if (input.jump && isGrounded && !input.crouch) {
-        velocity.y = JUMP_FORCE;
-    }
-
-    // Update position
-    position.x += velocity.x * delta;
-    position.y += velocity.y * delta;
-    position.z += velocity.z * delta;
-
-    // Floor collision (simple)
-    if (position.y < 1.15) {
-        position.y = 1.15;
-        velocity.y = 0;
-    }
-}
 
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
             // Server Authoritative State
             const serverPos = new THREE.Vector3().copy(state[id].position);
-            const serverVel = new THREE.Vector3().copy(state[id].velocity || { x: 0, y: 0, z: 0 }); // Server might not send velocity yet but good for future
+            const serverVel = new THREE.Vector3().copy(state[id].velocity || { x: 0, y: 0, z: 0 });
             const lastProcessedSeq = state[id].seq || 0;
 
             // 1. Discard confirmed inputs
@@ -370,42 +430,19 @@ socket.on('state', (state) => {
 
             // 2. Re-simulate from server position
             predictedPosition.copy(serverPos);
-            predictedVelocity.copy(serverVel); // Use authoritative velocity (including Vertical!)
+            predictedVelocity.copy(serverVel);
 
             // Re-apply all pending inputs (prediction)
             for (const input of pendingInputs) {
                 applyMovement(predictedPosition, predictedVelocity, input, DELTA);
             }
 
-            // 3. Smooth Visual Correction (Reconciliation)
-            if (myPlayerMesh) {
-                // Determine error (predicted logically vs current visual)
-                const currentVisualPos = myPlayerMesh.mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
-                const error = currentVisualPos.distanceTo(predictedPosition);
-
-                // If divergence is huge, snap
-                if (error > 2.0) {
-                    myPlayerMesh.mesh.position.copy(predictedPosition);
-                    myPlayerMesh.mesh.position.y -= 1;
-                } else {
-                    // Otherwise, smoothly move towards predicted position
-                    const targetVisualPos = predictedPosition.clone();
-                    targetVisualPos.y -= 1;
-                    // LERP faster if error is bigger, or just fixed rate
-                    myPlayerMesh.mesh.position.lerp(targetVisualPos, 0.4);
-                }
-
-                myPlayerMesh.mesh.rotation.y = camera.rotation.y;
-
-                // Animation
-                const animVelocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
-                const isCrouching = moveState.crouch;
-                myPlayerMesh.update(clock.getElapsedTime(), animVelocity > 0.01, isCrouching);
-                myPlayerMesh.lastPos.copy(predictedPosition);
+            // 3. LOGICAL CORRECTION: Check if we are too far from visual and snap if needed
+            // Otherwise, just let 'animate' smoothly bring visualPosition to the new logical predictedPosition
+            const dist = visualPosition.distanceTo(predictedPosition);
+            if (dist > 2.0) {
+                visualPosition.copy(predictedPosition);
             }
-
-            // Camera follows PREDICTED position for instant feedback
-            updateCamera(predictedPosition);
 
         } else {
             if (!players[id]) {
@@ -480,6 +517,7 @@ function removePlayer(id) {
 
 // Game Loop
 const clock = new THREE.Clock();
+let visualPosition = new THREE.Vector3(0, 5, 0);
 
 function animate() {
     requestAnimationFrame(animate);
@@ -511,7 +549,7 @@ function animate() {
         if (moveState.sprint) speed = 12;
         else if (moveState.crouch) speed = 4;
 
-        // PREDICTION: Apply immediately to local state
+        // 1. LOGICAL PREDICTION: Apply physics immediately
         const input = {
             x: direction.x,
             z: direction.z,
@@ -522,16 +560,28 @@ function animate() {
         };
         applyMovement(predictedPosition, predictedVelocity, input, DELTA);
 
-        // Update Camera Immediately
-        updateCamera(predictedPosition);
+        // 2. VISUAL SMOOTHING: Camera/Mesh follow logical position with a high-speed lerp
+        // This hides tiny jitters from reconciliation corrections
+        visualPosition.lerp(predictedPosition, 0.5);
 
-        // Update Mesh Immediately (Visual)
+        // Update Camera Visuals
+        updateCamera(visualPosition);
+
+        // Update Mesh Visuals
         if (myPlayerMesh) {
-            myPlayerMesh.mesh.position.copy(predictedPosition);
-            myPlayerMesh.mesh.position.y -= 1; // Offset for mesh center
+            const targetMeshPos = visualPosition.clone();
+            targetMeshPos.y -= 1; // Offset for humanoid base
+            myPlayerMesh.mesh.position.copy(targetMeshPos);
+            myPlayerMesh.mesh.rotation.y = camera.rotation.y;
+
+            // Animation based on logical velocity
+            const animVelocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
+            const isCrouching = moveState.crouch;
+            myPlayerMesh.update(clock.getElapsedTime(), animVelocity > 0.01, isCrouching);
+            myPlayerMesh.lastPos.copy(predictedPosition);
         }
 
-        // Send to Server
+        // 3. NETWORK: Send to Server
         inputSequence++;
         const serverInput = {
             seq: inputSequence,
@@ -543,7 +593,6 @@ function animate() {
             yaw: camera.rotation.y
         };
 
-        // Store for reconciliation
         pendingInputs.push({
             seq: inputSequence,
             x: direction.x,
@@ -556,6 +605,7 @@ function animate() {
 
         socket.emit('input', serverInput);
     }
+
     renderer.render(scene, camera);
 }
 

@@ -178,7 +178,7 @@ setInterval(() => {
 
         // Jump with better ground check (y position near ground)
         // Cannot jump while crouching
-        const isGrounded = p.body.position.y < 2.0 && Math.abs(currentY) < 0.5;
+        const isGrounded = p.body.position.y < 1.25 && Math.abs(currentY) < 0.5;
         if (p.input.jump && isGrounded && !p.input.crouch) {
             p.body.velocity.y = 7; // Jump velocity
         }
