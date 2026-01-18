@@ -28,12 +28,13 @@ world.gravity.set(0, -9.82, 0);
 
 // Game State
 const players = {};
+const obstacles = [];
 const TIMESTEP = 1 / 60;
 
 // Default Material
 const defaultMaterial = new CANNON.Material('default');
 const defaultContactMaterial = new CANNON.ContactMaterial(defaultMaterial, defaultMaterial, {
-    friction: 0.0, // Frictionless for simple movement logic
+    friction: 0.0,
     restitution: 0.0
 });
 world.addContactMaterial(defaultContactMaterial);
@@ -45,6 +46,20 @@ groundBody.addShape(groundShape);
 groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
 world.addBody(groundBody);
 
+// Generate Random Obstacles
+for (let i = 0; i < 20; i++) {
+    const size = { x: Math.random() * 2 + 1, y: Math.random() * 5 + 1, z: Math.random() * 2 + 1 };
+    const position = { x: (Math.random() - 0.5) * 40, y: size.y / 2, z: (Math.random() - 0.5) * 40 };
+
+    const boxShape = new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2));
+    const boxBody = new CANNON.Body({ mass: 0, material: defaultMaterial }); // Mass 0 = static
+    boxBody.addShape(boxShape);
+    boxBody.position.set(position.x, position.y, position.z);
+    world.addBody(boxBody);
+
+    obstacles.push({ position, size, id: `box_${i}` });
+}
+
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
@@ -53,7 +68,7 @@ io.on('connection', (socket) => {
     const shape = new CANNON.Sphere(radius);
     const body = new CANNON.Body({
         mass: 1, // kg
-        position: new CANNON.Vec3(0, 5, 0),
+        position: new CANNON.Vec3(0, 10, 0), // Spawn higher
         material: defaultMaterial,
         fixedRotation: true
     });
@@ -61,14 +76,17 @@ io.on('connection', (socket) => {
     body.linearDamping = 0.9;
     world.addBody(body);
 
+    const color = '#' + Math.floor(Math.random() * 16777215).toString(16);
+
     players[socket.id] = {
         id: socket.id,
         body: body,
-        input: { x: 0, z: 0, jump: false }
+        input: { x: 0, z: 0, jump: false },
+        color: color
     };
 
-    socket.emit('init', { id: socket.id, players: getPlayersState() });
-    socket.broadcast.emit('playerJoined', { id: socket.id, position: body.position });
+    socket.emit('init', { id: socket.id, players: getPlayersState(), obstacles: obstacles });
+    socket.broadcast.emit('playerJoined', { id: socket.id, position: body.position, color: color });
 
     socket.on('input', (data) => {
         if (players[socket.id]) {
@@ -92,7 +110,8 @@ function getPlayersState() {
         state[id] = {
             id: id,
             position: players[id].body.position,
-            quaternion: players[id].body.quaternion
+            quaternion: players[id].body.quaternion,
+            color: players[id].color
         };
     }
     return state;
