@@ -108,13 +108,54 @@ dirLight.position.set(10, 20, 10);
 dirLight.castShadow = true;
 scene.add(dirLight);
 
-// Ground
-const groundGeometry = new THREE.PlaneGeometry(100, 100);
-const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22 });
+// Ground (Basketball Court)
+const courtWidth = 28;
+const courtDepth = 15;
+const groundGeometry = new THREE.PlaneGeometry(courtWidth, courtDepth);
+const groundMaterial = new THREE.MeshStandardMaterial({ color: 0xcc7722 }); // Hardwood-ish orange-brown
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
+
+// Court Lines
+const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const createLine = (w, d, x, z) => {
+    const geo = new THREE.PlaneGeometry(w, d);
+    const mesh = new THREE.Mesh(geo, lineMat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(x, 0.01, z);
+    scene.add(mesh);
+};
+// Boundary
+createLine(courtWidth, 0.1, 0, courtDepth / 2);
+createLine(courtWidth, 0.1, 0, -courtDepth / 2);
+createLine(0.1, courtDepth, courtWidth / 2, 0);
+createLine(0.1, courtDepth, -courtWidth / 2, 0);
+// Center Line
+createLine(0.1, courtDepth, 0, 0);
+
+// Ball Rendering
+const ballGeo = new THREE.SphereGeometry(0.25, 16, 16);
+const ballMat = new THREE.MeshStandardMaterial({ color: 0xff4500 }); // Orange-red ball
+const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+ballMesh.castShadow = true;
+scene.add(ballMesh);
+
+// Score HUD
+const scoreHUD = document.createElement('div');
+scoreHUD.id = 'score-hud';
+scoreHUD.style.position = 'absolute';
+scoreHUD.style.top = '20px';
+scoreHUD.style.width = '100%';
+scoreHUD.style.textAlign = 'center';
+scoreHUD.style.color = '#00ff00';
+scoreHUD.style.fontSize = '32px';
+scoreHUD.style.fontWeight = 'bold';
+scoreHUD.style.fontFamily = 'monospace';
+scoreHUD.style.textShadow = '0 0 10px #000';
+scoreHUD.textContent = 'TEAM 1: 0 | TEAM 2: 0';
+document.body.appendChild(scoreHUD);
 
 // Controls
 const controls = new PointerLockControls(camera, document.body);
@@ -135,6 +176,13 @@ controls.addEventListener('unlock', () => {
     // Show instructions only if not chatting
     if (isLoggedIn && !isChatOpen) {
         instructions.style.display = 'block';
+    }
+});
+
+// Shooting Input
+document.addEventListener('mousedown', (e) => {
+    if (isLoggedIn && controls.isLocked && e.button === 0) {
+        socket.emit('shoot');
     }
 });
 
@@ -446,17 +494,31 @@ let predictedPosition = new THREE.Vector3(0, 5, 0);
 let predictedVelocity = new THREE.Vector3(0, 0, 0);
 
 socket.on('state', (state) => {
-    for (const id in state) {
+    if (!state.players) return;
+
+    // 1. Sync Ball
+    if (state.ball) {
+        ballMesh.position.copy(state.ball.position);
+    }
+
+    // 2. Sync Score
+    if (state.scores) {
+        scoreHUD.textContent = `TEAM 1: ${state.scores.team1} | TEAM 2: ${state.scores.team2}`;
+    }
+
+    // 3. Sync Players
+    const playerStates = state.players;
+    for (const id in playerStates) {
         if (id === myId) {
             // Server Authoritative State
-            const serverPos = new THREE.Vector3().copy(state[id].position);
-            const serverVel = new THREE.Vector3().copy(state[id].velocity || { x: 0, y: 0, z: 0 });
-            const lastProcessedSeq = state[id].seq || 0;
+            const serverPos = new THREE.Vector3().copy(playerStates[id].position);
+            const serverVel = new THREE.Vector3().copy(playerStates[id].velocity || { x: 0, y: 0, z: 0 });
+            const lastProcessedSeq = playerStates[id].seq || 0;
 
-            // 1. Discard confirmed inputs
+            // Discard confirmed inputs
             pendingInputs = pendingInputs.filter(input => input.seq > lastProcessedSeq);
 
-            // 2. Re-simulate from server position
+            // Re-simulate from server position
             predictedPosition.copy(serverPos);
             predictedVelocity.copy(serverVel);
 
@@ -465,8 +527,7 @@ socket.on('state', (state) => {
                 applyMovement(predictedPosition, predictedVelocity, input, DELTA);
             }
 
-            // 3. LOGICAL CORRECTION: Check if we are too far from visual and snap if needed
-            // Otherwise, just let 'animate' smoothly bring visualPosition to the new logical predictedPosition
+            // LOGICAL CORRECTION
             const dist = visualPosition.distanceTo(predictedPosition);
             if (dist > 2.0) {
                 visualPosition.copy(predictedPosition);
@@ -474,17 +535,17 @@ socket.on('state', (state) => {
 
         } else {
             if (!players[id]) {
-                addPlayer(id, state[id].position, state[id].color);
+                addPlayer(id, playerStates[id].position, playerStates[id].color);
             }
             if (players[id]) {
                 const humanoid = players[id];
-                const targetPos = new THREE.Vector3().copy(state[id].position);
+                const targetPos = new THREE.Vector3().copy(playerStates[id].position);
                 targetPos.y -= 1;
 
                 humanoid.mesh.position.lerp(targetPos, 0.2);
 
-                if (state[id].yaw !== undefined) {
-                    const targetYaw = state[id].yaw;
+                if (playerStates[id].yaw !== undefined) {
+                    const targetYaw = playerStates[id].yaw;
                     const currentYaw = humanoid.mesh.rotation.y;
                     let diff = targetYaw - currentYaw;
                     while (diff > Math.PI) diff -= Math.PI * 2;
@@ -493,7 +554,7 @@ socket.on('state', (state) => {
                 }
 
                 const velocity = humanoid.mesh.position.distanceTo(humanoid.lastPos);
-                const isCrouching = state[id].crouch || false;
+                const isCrouching = playerStates[id].crouch || false;
                 humanoid.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
                 humanoid.lastPos.copy(humanoid.mesh.position);
             }
