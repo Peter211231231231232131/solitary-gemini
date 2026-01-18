@@ -149,7 +149,8 @@ function getPlayersState() {
             yaw: players[id].yaw,
             crouch: players[id].input.crouch || false,
             name: players[id].name,
-            seq: players[id].lastSeq || 0 // Send back matching sequence number
+            seq: players[id].lastSeq || 0, // Send back matching sequence number
+            velocity: players[id].body.velocity // Include velocity for better prediction sync
         };
     }
     return state;

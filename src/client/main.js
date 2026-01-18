@@ -324,15 +324,37 @@ socket.on('playerLeft', (id) => {
 let inputSequence = 0;
 let pendingInputs = [];
 let predictedPosition = new THREE.Vector3(0, 5, 0);
-const DELTA = 1 / 60; // Fixed timestep for prediction
+let predictedVelocity = new THREE.Vector3(0, 0, 0);
+const DELTA = 1 / 60;
+const GRAVITY = 9.82;
+const JUMP_FORCE = 7.0;
 
 // Reusable movement logic
-function applyMovement(position, input, delta) {
+function applyMovement(position, velocity, input, delta) {
+    // Horizontal movement
     const speed = input.speed;
-    position.x += input.x * speed * delta;
-    position.z += input.z * speed * delta;
-    // Note: Y axis (gravity/jump) is still largely server-authoritative for now to prevent desync
-    // but horizontal movement is fully predicted.
+    velocity.x = input.x * speed;
+    velocity.z = input.z * speed;
+
+    // Vertical movement (Gravity)
+    velocity.y -= GRAVITY * delta;
+
+    // Jump logic (simple ground check for prediction)
+    const isGrounded = position.y < 1.2 && Math.abs(velocity.y) < 1.0;
+    if (input.jump && isGrounded && !input.crouch) {
+        velocity.y = JUMP_FORCE;
+    }
+
+    // Update position
+    position.x += velocity.x * delta;
+    position.y += velocity.y * delta;
+    position.z += velocity.z * delta;
+
+    // Floor collision (simple)
+    if (position.y < 1.15) {
+        position.y = 1.15;
+        velocity.y = 0;
+    }
 }
 
 socket.on('state', (state) => {
@@ -340,38 +362,45 @@ socket.on('state', (state) => {
         if (id === myId) {
             // Server Authoritative State
             const serverPos = new THREE.Vector3().copy(state[id].position);
+            const serverVel = new THREE.Vector3().copy(state[id].velocity || { x: 0, y: 0, z: 0 }); // Server might not send velocity yet but good for future
             const lastProcessedSeq = state[id].seq || 0;
 
             // 1. Discard confirmed inputs
             pendingInputs = pendingInputs.filter(input => input.seq > lastProcessedSeq);
 
             // 2. Re-simulate from server position
-            // Start with authoritative state
             predictedPosition.copy(serverPos);
+            predictedVelocity.copy(serverVel); // Use authoritative velocity (including Vertical!)
 
             // Re-apply all pending inputs (prediction)
             for (const input of pendingInputs) {
-                applyMovement(predictedPosition, input, DELTA);
+                applyMovement(predictedPosition, predictedVelocity, input, DELTA);
             }
 
             // 3. Smooth Visual Correction (Reconciliation)
             if (myPlayerMesh) {
-                // If divergence is too high, snap (teleport)
-                if (myPlayerMesh.mesh.position.distanceTo(predictedPosition) > 2.0) {
+                // Determine error (predicted logically vs current visual)
+                const currentVisualPos = myPlayerMesh.mesh.position.clone().add(new THREE.Vector3(0, 1, 0));
+                const error = currentVisualPos.distanceTo(predictedPosition);
+
+                // If divergence is huge, snap
+                if (error > 2.0) {
                     myPlayerMesh.mesh.position.copy(predictedPosition);
+                    myPlayerMesh.mesh.position.y -= 1;
                 } else {
-                    // Otherwise, smoothly lerp visual mesh towards predicted logical position
-                    // This hides small jitter from network corrections
-                    myPlayerMesh.mesh.position.lerp(predictedPosition, 0.2);
+                    // Otherwise, smoothly move towards predicted position
+                    const targetVisualPos = predictedPosition.clone();
+                    targetVisualPos.y -= 1;
+                    // LERP faster if error is bigger, or just fixed rate
+                    myPlayerMesh.mesh.position.lerp(targetVisualPos, 0.4);
                 }
 
-                myPlayerMesh.mesh.position.y = serverPos.y - 1; // Keep Y synced with server mostly
                 myPlayerMesh.mesh.rotation.y = camera.rotation.y;
 
                 // Animation
-                const velocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
+                const animVelocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
                 const isCrouching = moveState.crouch;
-                myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
+                myPlayerMesh.update(clock.getElapsedTime(), animVelocity > 0.01, isCrouching);
                 myPlayerMesh.lastPos.copy(predictedPosition);
             }
 
@@ -487,9 +516,11 @@ function animate() {
             x: direction.x,
             z: direction.z,
             speed: speed,
+            jump: moveState.jump,
+            crouch: moveState.crouch,
             dt: DELTA
         };
-        applyMovement(predictedPosition, input, DELTA);
+        applyMovement(predictedPosition, predictedVelocity, input, DELTA);
 
         // Update Camera Immediately
         updateCamera(predictedPosition);
@@ -513,19 +544,18 @@ function animate() {
         };
 
         // Store for reconciliation
-        // We reuse the 'input' struct for applyMovement, but we need to store the one we sent to server
-        // Actually, we need to store x/z/speed for re-simulation.
         pendingInputs.push({
             seq: inputSequence,
             x: direction.x,
             z: direction.z,
             speed: speed,
+            jump: moveState.jump,
+            crouch: moveState.crouch,
             dt: DELTA
         });
 
         socket.emit('input', serverInput);
     }
-
     renderer.render(scene, camera);
 }
 
