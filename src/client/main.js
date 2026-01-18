@@ -70,7 +70,7 @@ function applyMovement(position, velocity, input, delta) {
     velocity.z = input.z * speed;
     velocity.y -= GRAVITY * delta;
 
-    const isGrounded = position.y < 1.25 || (Math.abs(velocity.y) < 0.1);
+    const isGrounded = position.y < 1.25;
     if (input.jump && isGrounded && !input.crouch) {
         velocity.y = JUMP_FORCE;
     }
@@ -518,6 +518,7 @@ function removePlayer(id) {
 // Game Loop
 const clock = new THREE.Clock();
 let visualPosition = new THREE.Vector3(0, 5, 0);
+let physicsAccumulator = 0;
 
 function animate() {
     requestAnimationFrame(animate);
@@ -528,82 +529,89 @@ function animate() {
         return;
     }
 
-    if ((controls.isLocked || isMobile) && !isChatOpen) {
-        // Calculate movement direction
-        const direction = new THREE.Vector3();
-        const front = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const frameDelta = Math.min(clock.getDelta(), 0.1); // Max 100ms per frame to prevent "death spirals"
+    physicsAccumulator += frameDelta;
 
-        front.y = 0; front.normalize();
-        right.y = 0; right.normalize();
+    // 1. LOGICAL PHYSICS & PREDICTION (Fixed Timestep)
+    while (physicsAccumulator >= DELTA) {
+        physicsAccumulator -= DELTA;
 
-        if (moveState.forward) direction.add(front);
-        if (moveState.backward) direction.sub(front);
-        if (moveState.right) direction.add(right);
-        if (moveState.left) direction.sub(right);
+        if ((controls.isLocked || isMobile) && !isChatOpen) {
+            // Calculate movement direction
+            const direction = new THREE.Vector3();
+            const front = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
 
-        if (direction.length() > 0) direction.normalize();
+            front.y = 0; front.normalize();
+            right.y = 0; right.normalize();
 
-        // Speed calculation
-        let speed = 8;
-        if (moveState.sprint) speed = 12;
-        else if (moveState.crouch) speed = 4;
+            if (moveState.forward) direction.add(front);
+            if (moveState.backward) direction.sub(front);
+            if (moveState.right) direction.add(right);
+            if (moveState.left) direction.sub(right);
 
-        // 1. LOGICAL PREDICTION: Apply physics immediately
-        const input = {
-            x: direction.x,
-            z: direction.z,
-            speed: speed,
-            jump: moveState.jump,
-            crouch: moveState.crouch,
-            dt: DELTA
-        };
-        applyMovement(predictedPosition, predictedVelocity, input, DELTA);
+            if (direction.length() > 0) direction.normalize();
 
-        // 2. VISUAL SMOOTHING: Camera/Mesh follow logical position with a high-speed lerp
-        // This hides tiny jitters from reconciliation corrections
-        visualPosition.lerp(predictedPosition, 0.5);
+            // Speed calculation
+            let speed = 8;
+            if (moveState.sprint) speed = 12;
+            else if (moveState.crouch) speed = 4;
 
-        // Update Camera Visuals
-        updateCamera(visualPosition);
+            // Apply prediction
+            const input = {
+                x: direction.x,
+                z: direction.z,
+                speed: speed,
+                jump: moveState.jump,
+                crouch: moveState.crouch,
+                dt: DELTA
+            };
+            applyMovement(predictedPosition, predictedVelocity, input, DELTA);
 
-        // Update Mesh Visuals
-        if (myPlayerMesh) {
-            const targetMeshPos = visualPosition.clone();
-            targetMeshPos.y -= 1; // Offset for humanoid base
-            myPlayerMesh.mesh.position.copy(targetMeshPos);
-            myPlayerMesh.mesh.rotation.y = camera.rotation.y;
+            // Send/Store Input
+            inputSequence++;
+            const serverInput = {
+                seq: inputSequence,
+                x: direction.x,
+                z: direction.z,
+                jump: moveState.jump,
+                sprint: moveState.sprint,
+                crouch: moveState.crouch,
+                yaw: camera.rotation.y
+            };
 
-            // Animation based on logical velocity
-            const animVelocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
-            const isCrouching = moveState.crouch;
-            myPlayerMesh.update(clock.getElapsedTime(), animVelocity > 0.01, isCrouching);
-            myPlayerMesh.lastPos.copy(predictedPosition);
+            pendingInputs.push({
+                seq: inputSequence,
+                x: direction.x,
+                z: direction.z,
+                speed: speed,
+                jump: moveState.jump,
+                crouch: moveState.crouch,
+                dt: DELTA
+            });
+
+            socket.emit('input', serverInput);
         }
+    }
 
-        // 3. NETWORK: Send to Server
-        inputSequence++;
-        const serverInput = {
-            seq: inputSequence,
-            x: direction.x,
-            z: direction.z,
-            jump: moveState.jump,
-            sprint: moveState.sprint,
-            crouch: moveState.crouch,
-            yaw: camera.rotation.y
-        };
+    // 2. VISUAL SMOOTHING (Per-frame)
+    // Lerp towards the definitive logical position
+    visualPosition.lerp(predictedPosition, 0.4);
 
-        pendingInputs.push({
-            seq: inputSequence,
-            x: direction.x,
-            z: direction.z,
-            speed: speed,
-            jump: moveState.jump,
-            crouch: moveState.crouch,
-            dt: DELTA
-        });
+    // Update Visual Objects
+    updateCamera(visualPosition);
 
-        socket.emit('input', serverInput);
+    if (myPlayerMesh) {
+        const targetMeshPos = visualPosition.clone();
+        targetMeshPos.y -= 1; // Offset for base
+        myPlayerMesh.mesh.position.copy(targetMeshPos);
+        myPlayerMesh.mesh.rotation.y = camera.rotation.y;
+
+        // Animation velocity based on delta between predicted frames
+        const animVelocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
+        const isCrouching = moveState.crouch;
+        myPlayerMesh.update(clock.getElapsedTime(), animVelocity > 0.01, isCrouching);
+        myPlayerMesh.lastPos.copy(predictedPosition);
     }
 
     renderer.render(scene, camera);

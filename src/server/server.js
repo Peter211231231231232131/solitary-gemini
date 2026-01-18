@@ -90,7 +90,7 @@ io.on('connection', (socket) => {
         const bottomSphere = new CANNON.Sphere(capsuleRadius);
         body.addShape(bottomSphere, new CANNON.Vec3(0, -capsuleHeight / 2, 0));
 
-        body.linearDamping = 0.9;
+        body.linearDamping = 0.0; // Remove damping to match client prediction
         world.addBody(body);
 
         const color = '#' + Math.floor(Math.random() * 16777215).toString(16);
@@ -177,8 +177,8 @@ setInterval(() => {
         p.body.velocity.set(p.input.x * speed, currentY, p.input.z * speed);
 
         // Jump with better ground check (y position near ground)
-        // Cannot jump while crouching
-        const isGrounded = p.body.position.y < 1.25 && Math.abs(currentY) < 0.5;
+        // Match client logic: position.y < 1.25
+        const isGrounded = p.body.position.y < 1.25;
         if (p.input.jump && isGrounded && !p.input.crouch) {
             p.body.velocity.y = 7; // Jump velocity
         }
