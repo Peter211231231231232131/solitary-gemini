@@ -374,13 +374,6 @@ function animate() {
         if (moveState.sprint) speed = 12;
         else if (moveState.crouch) speed = 4;
 
-        // CLIENT-SIDE PREDICTION: Apply movement locally immediately
-        predictedPosition.x += direction.x * speed * DELTA;
-        predictedPosition.z += direction.z * speed * DELTA;
-
-
-        if (direction.length() > 0) direction.normalize();
-
         // Send input to server
         const yaw = camera.rotation.y;
         socket.emit('input', {
