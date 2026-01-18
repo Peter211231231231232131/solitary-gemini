@@ -129,7 +129,8 @@ function getPlayersState() {
             position: players[id].body.position,
             quaternion: players[id].body.quaternion,
             color: players[id].color,
-            yaw: players[id].yaw
+            yaw: players[id].yaw,
+            crouch: players[id].input.crouch || false
         };
     }
     return state;

@@ -62,8 +62,18 @@ export class Humanoid {
         this.mesh.position.y = -1;
     }
 
-    update(time, isMoving) {
-        if (isMoving) {
+    update(time, isMoving, isCrouching = false) {
+        // Crouch animation - lower the body
+        const crouchOffset = isCrouching ? -0.5 : 0;
+        const crouchLegBend = isCrouching ? 0.8 : 0; // Bend legs when crouching
+
+        // Update body/head positions for crouch
+        this.head.position.y = 1.75 + crouchOffset;
+        this.body.position.y = 1.05 + crouchOffset;
+        this.leftArm.position.y = 1.05 + crouchOffset;
+        this.rightArm.position.y = 1.05 + crouchOffset;
+
+        if (isMoving && !isCrouching) {
             const speed = 10;
             const angle = Math.sin(time * speed);
 
@@ -77,14 +87,28 @@ export class Humanoid {
             this.rightLeg.rotation.x = angle;
             this.rightLeg.position.z = Math.sin(time * speed) * 0.2;
             this.rightLeg.position.y = 0.15 + Math.abs(Math.cos(time * speed)) * 0.1;
+        } else if (isCrouching) {
+            // Crouch pose - legs bent
+            this.leftArm.rotation.x = 0.3; // Arms slightly forward for balance
+            this.rightArm.rotation.x = 0.3;
+
+            this.leftLeg.rotation.x = crouchLegBend;
+            this.leftLeg.position.y = 0.15 + crouchOffset * 0.5;
+            this.leftLeg.position.z = -0.2;
+
+            this.rightLeg.rotation.x = crouchLegBend;
+            this.rightLeg.position.y = 0.15 + crouchOffset * 0.5;
+            this.rightLeg.position.z = -0.2;
         } else {
-            // Reset
+            // Reset to idle
             this.leftArm.rotation.x = 0;
             this.rightArm.rotation.x = 0;
             this.leftLeg.rotation.x = 0;
             this.rightLeg.rotation.x = 0;
             this.leftLeg.position.z = 0;
             this.rightLeg.position.z = 0;
+            this.leftLeg.position.y = 0.15;
+            this.rightLeg.position.y = 0.15;
         }
     }
 }

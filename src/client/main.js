@@ -302,9 +302,10 @@ socket.on('state', (state) => {
                     humanoid.mesh.rotation.y += diff * 0.2;
                 }
 
-                // Animation based on velocity
+                // Animation based on velocity and crouch state
                 const velocity = humanoid.mesh.position.distanceTo(humanoid.lastPos);
-                humanoid.update(clock.getElapsedTime(), velocity > 0.01);
+                const isCrouching = state[id].crouch || false;
+                humanoid.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
                 humanoid.lastPos.copy(humanoid.mesh.position);
             }
         }
