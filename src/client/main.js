@@ -316,34 +316,66 @@ socket.on('playerJoined', (data) => {
         addPlayer(data.id, data.position, data.color);
     }
 });
+removePlayer(id);
+    });
 
-socket.on('playerLeft', (id) => {
-    removePlayer(id);
-});
-
-// Client-side prediction state - REVERTED TO DIRECT SERVER POS
+// Client-Side Prediction State
+let inputSequence = 0;
+let pendingInputs = [];
 let predictedPosition = new THREE.Vector3(0, 5, 0);
+const DELTA = 1 / 60; // Fixed timestep for prediction
+
+// Reusable movement logic
+function applyMovement(position, input, delta) {
+    const speed = input.speed;
+    position.x += input.x * speed * delta;
+    position.z += input.z * speed * delta;
+    // Note: Y axis (gravity/jump) is still largely server-authoritative for now to prevent desync
+    // but horizontal movement is fully predicted.
+}
 
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
-            // Server position is authoritative - use it directly (no reconciliation/prediction loop)
+            // Server Authoritative State
             const serverPos = new THREE.Vector3().copy(state[id].position);
+            const lastProcessedSeq = state[id].seq || 0;
 
+            // 1. Discard confirmed inputs
+            pendingInputs = pendingInputs.filter(input => input.seq > lastProcessedSeq);
+
+            // 2. Re-simulate from server position
+            // Start with authoritative state
+            predictedPosition.copy(serverPos);
+
+            // Re-apply all pending inputs (prediction)
+            for (const input of pendingInputs) {
+                applyMovement(predictedPosition, input, DELTA);
+            }
+
+            // 3. Smooth Visual Correction (Reconciliation)
             if (myPlayerMesh) {
-                myPlayerMesh.mesh.position.copy(serverPos);
-                myPlayerMesh.mesh.position.y -= 1;
+                // If divergence is too high, snap (teleport)
+                if (myPlayerMesh.mesh.position.distanceTo(predictedPosition) > 2.0) {
+                    myPlayerMesh.mesh.position.copy(predictedPosition);
+                } else {
+                    // Otherwise, smoothly lerp visual mesh towards predicted logical position
+                    // This hides small jitter from network corrections
+                    myPlayerMesh.mesh.position.lerp(predictedPosition, 0.2);
+                }
+
+                myPlayerMesh.mesh.position.y = serverPos.y - 1; // Keep Y synced with server mostly
                 myPlayerMesh.mesh.rotation.y = camera.rotation.y;
 
                 // Animation
-                const velocity = serverPos.distanceTo(myPlayerMesh.lastPos);
+                const velocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
                 const isCrouching = moveState.crouch;
                 myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
-                myPlayerMesh.lastPos.copy(serverPos);
+                myPlayerMesh.lastPos.copy(predictedPosition);
             }
 
-            // Camera follows server position directly
-            updateCamera(serverPos);
+            // Camera follows PREDICTED position for instant feedback
+            updateCamera(predictedPosition);
 
         } else {
             if (!players[id]) {
@@ -354,10 +386,8 @@ socket.on('state', (state) => {
                 const targetPos = new THREE.Vector3().copy(state[id].position);
                 targetPos.y -= 1;
 
-                // Smooth interpolation for other players
                 humanoid.mesh.position.lerp(targetPos, 0.2);
 
-                // Smooth rotation interpolation
                 if (state[id].yaw !== undefined) {
                     const targetYaw = state[id].yaw;
                     const currentYaw = humanoid.mesh.rotation.y;
@@ -367,7 +397,6 @@ socket.on('state', (state) => {
                     humanoid.mesh.rotation.y += diff * 0.2;
                 }
 
-                // Animation based on velocity and crouch state
                 const velocity = humanoid.mesh.position.distanceTo(humanoid.lastPos);
                 const isCrouching = state[id].crouch || false;
                 humanoid.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
@@ -432,15 +461,13 @@ function animate() {
     }
 
     if ((controls.isLocked || isMobile) && !isChatOpen) {
-        // Calculate movement direction relative to camera
+        // Calculate movement direction
         const direction = new THREE.Vector3();
         const front = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
 
-        front.y = 0;
-        front.normalize();
-        right.y = 0;
-        right.normalize();
+        front.y = 0; front.normalize();
+        right.y = 0; right.normalize();
 
         if (moveState.forward) direction.add(front);
         if (moveState.backward) direction.sub(front);
@@ -454,16 +481,48 @@ function animate() {
         if (moveState.sprint) speed = 12;
         else if (moveState.crouch) speed = 4;
 
-        // Send input to server
-        const yaw = camera.rotation.y;
-        socket.emit('input', {
+        // PREDICTION: Apply immediately to local state
+        const input = {
+            x: direction.x,
+            z: direction.z,
+            speed: speed,
+            dt: DELTA
+        };
+        applyMovement(predictedPosition, input, DELTA);
+
+        // Update Camera Immediately
+        updateCamera(predictedPosition);
+
+        // Update Mesh Immediately (Visual)
+        if (myPlayerMesh) {
+            myPlayerMesh.mesh.position.copy(predictedPosition);
+            myPlayerMesh.mesh.position.y -= 1; // Offset for mesh center
+        }
+
+        // Send to Server
+        inputSequence++;
+        const serverInput = {
+            seq: inputSequence,
             x: direction.x,
             z: direction.z,
             jump: moveState.jump,
             sprint: moveState.sprint,
             crouch: moveState.crouch,
-            yaw: yaw
+            yaw: camera.rotation.y
+        };
+
+        // Store for reconciliation
+        // We reuse the 'input' struct for applyMovement, but we need to store the one we sent to server
+        // Actually, we need to store x/z/speed for re-simulation.
+        pendingInputs.push({
+            seq: inputSequence,
+            x: direction.x,
+            z: direction.z,
+            speed: speed,
+            dt: DELTA
         });
+
+        socket.emit('input', serverInput);
     }
 
     renderer.render(scene, camera);
