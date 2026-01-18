@@ -95,23 +95,40 @@ document.addEventListener('keyup', onKeyUp);
 // Players
 const players = {};
 const playerGeo = new THREE.SphereGeometry(1, 32, 32);
-const playerMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+
+// Environment
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const boxMat = new THREE.MeshStandardMaterial({ color: 0x808080 });
 
 // Networking
 let myId = null;
 
 socket.on('init', (data) => {
     myId = data.id;
+
+    // Spawn Obstacles
+    if (data.obstacles) {
+        data.obstacles.forEach(obs => {
+            const mesh = new THREE.Mesh(boxGeo, boxMat);
+            mesh.position.set(obs.position.x, obs.position.y, obs.position.z);
+            mesh.scale.set(obs.size.x, obs.size.y, obs.size.z);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+        });
+    }
+
+    // Spawn existing players
     for (const id in data.players) {
         if (id !== myId) {
-            addPlayer(id, data.players[id].position);
+            addPlayer(id, data.players[id].position, data.players[id].color);
         }
     }
 });
 
 socket.on('playerJoined', (data) => {
     if (data.id !== myId) {
-        addPlayer(data.id, data.position);
+        addPlayer(data.id, data.position, data.color);
     }
 });
 
@@ -123,22 +140,24 @@ socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
             // Update camera position based on server (naive reconciliation)
-            // Ideally we do client-side prediction, but for now we trust server with smoothing if needed
-            // But this will feel laggy. 
-            // Better: update camera locally, and use server corrections.
-            // For MVP: Simplest is snap camera to server position.
             camera.position.copy(state[id].position);
         } else {
+            if (!players[id]) {
+                // If we get an update for a player we don't have (rare race condition), spawn them
+                addPlayer(id, state[id].position, state[id].color);
+            }
             if (players[id]) {
-                players[id].position.copy(state[id].position);
-                players[id].quaternion.copy(state[id].quaternion);
+                const mesh = players[id];
+                mesh.position.copy(state[id].position);
+                mesh.quaternion.copy(state[id].quaternion);
             }
         }
     }
 });
 
-function addPlayer(id, position) {
-    const mesh = new THREE.Mesh(playerGeo, playerMat);
+function addPlayer(id, position, colorCode) {
+    const mat = new THREE.MeshStandardMaterial({ color: colorCode || 0xff0000 });
+    const mesh = new THREE.Mesh(playerGeo, mat);
     mesh.position.copy(position);
     mesh.castShadow = true;
     scene.add(mesh);
