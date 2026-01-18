@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { io } from 'socket.io-client';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import nipplejs from 'nipplejs';
+import { Humanoid } from './Humanoid.js';
 
 const socket = io();
 
@@ -119,8 +120,12 @@ scene.add(ground);
 const controls = new PointerLockControls(camera, document.body);
 const instructions = document.getElementById('instructions');
 
-// Removed redundant click listener here.
-// Unified locking is handled in attemptLock() and its listeners below.
+// Click to capture mouse (only if logged in and not chatting)
+document.addEventListener('click', () => {
+    if (isLoggedIn && !isChatOpen && !controls.isLocked) {
+        controls.lock();
+    }
+});
 
 controls.addEventListener('lock', () => {
     instructions.style.display = 'none';
@@ -128,7 +133,7 @@ controls.addEventListener('lock', () => {
 
 controls.addEventListener('unlock', () => {
     // Show instructions only if not chatting
-    if (!isChatOpen) {
+    if (isLoggedIn && !isChatOpen) {
         instructions.style.display = 'block';
     }
 });
@@ -254,16 +259,9 @@ if (isMobile) {
     }, { passive: false });
 }
 
-import { Humanoid } from './Humanoid.js';
-
-// ... (previous imports)
-
 // Players
 const players = {};
 let myId = null;
-// Removed sphere geometry/material as we use Humanoid class now
-
-// ... (code)
 
 // Login & Chat Elements
 const loginScreen = document.getElementById('login-screen');
@@ -284,13 +282,6 @@ function attemptLock() {
     }
 }
 
-// Global click to re-lock
-document.addEventListener('click', () => {
-    if (isLoggedIn && !isChatOpen && !controls.isLocked) {
-        attemptLock();
-    }
-});
-
 // Interact with Login
 function joinGame() {
     const name = usernameInput.value.trim() || "Player";
@@ -300,9 +291,10 @@ function joinGame() {
         isLoggedIn = true;
         socket.emit('joinGame', { name: myName });
 
-        // Use a slight timeout for the first lock after UI transition
-        // to ensure the browser registers the click/keypress as the source
-        setTimeout(() => attemptLock(), 10);
+        // Show instructions now that we are in-game
+        // The lock listener will hide them if attemptLock() succeeds
+        instructions.style.display = 'block';
+        attemptLock();
     }
 }
 
@@ -354,7 +346,7 @@ chatInput.addEventListener('keydown', (e) => {
         isChatOpen = false;
 
         // Return focus to game
-        setTimeout(() => attemptLock(), 50);
+        attemptLock();
     }
 
     // Stop movement keys but let ENTER bubble or handle it above
