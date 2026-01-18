@@ -177,8 +177,34 @@ const players = {};
 
 // ... (code)
 
+// 3rd Person View State
+let isThirdPerson = false;
+let myPlayerMesh = null;
+
+document.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyP') {
+        isThirdPerson = !isThirdPerson;
+        if (myPlayerMesh) {
+            myPlayerMesh.mesh.visible = isThirdPerson;
+        }
+    }
+});
+
 socket.on('init', (data) => {
     myId = data.id;
+
+    // Create my own mesh (hidden by default)
+    // Find my color from data.players
+    let myColor = 0xff0000;
+    if (data.players[myId]) {
+        myColor = data.players[myId].color;
+    }
+
+    myPlayerMesh = new Humanoid(myColor);
+    myPlayerMesh.mesh.visible = false; // Start in 1st person
+    myPlayerMesh.lastPos = new THREE.Vector3();
+    scene.add(myPlayerMesh.mesh);
+
     // ... (obstacles)
     // Spawn existing players
     for (const id in data.players) {
@@ -201,7 +227,40 @@ socket.on('playerLeft', (id) => {
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
-            camera.position.copy(state[id].position);
+            // My Player Logic
+            if (myPlayerMesh) {
+                const pos = state[id].position;
+                myPlayerMesh.mesh.position.copy(pos);
+                myPlayerMesh.mesh.position.y -= 1;
+                myPlayerMesh.mesh.rotation.y = camera.rotation.y;
+
+                // Animation
+                const velocity = new THREE.Vector3(
+                    pos.x - myPlayerMesh.lastPos.x,
+                    0,
+                    pos.z - myPlayerMesh.lastPos.z
+                ).length();
+                myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01);
+                myPlayerMesh.lastPos.copy(pos);
+            }
+
+            // Camera Logic
+            if (isThirdPerson) {
+                // Simple 3rd person: Pull camera back 4 units from eyes
+                const offset = new THREE.Vector3(0, 0, 4);
+                offset.applyQuaternion(camera.quaternion);
+
+                // Position = Player Pos + Eye Height + Offset
+                // Note: Player pos from server is center of physics body (y=5). 
+                // We want eye level to be slightly above that? No, physics body is y=5. 
+                // Wait, body spawn is (0,5,0). 
+
+                camera.position.copy(state[id].position).add(offset);
+            } else {
+                camera.position.copy(state[id].position);
+                // camera.position.y += 0.5; // Optional adjusting
+            }
+
         } else {
             if (!players[id]) {
                 addPlayer(id, state[id].position, state[id].color);
@@ -220,7 +279,6 @@ socket.on('state', (state) => {
 
                 // Animation
                 // Check if moving
-                const isMoving = false; // Need velocity or prev position to determine, for now static
                 const velocity = new THREE.Vector3(
                     state[id].position.x - humanoid.lastPos.x,
                     0,
