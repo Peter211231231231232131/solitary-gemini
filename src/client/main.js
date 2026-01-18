@@ -186,11 +186,89 @@ let myId = null;
 
 // ... (code)
 
+// Login & Chat Elements
+const loginScreen = document.getElementById('login-screen');
+const usernameInput = document.getElementById('username-input');
+const playButton = document.getElementById('play-button');
+const chatContainer = document.getElementById('chat-container');
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+
+let isLoggedIn = false;
+let myName = "Player";
+let isChatOpen = false;
+
+// Interact with Login
+playButton.addEventListener('click', () => {
+    const name = usernameInput.value.trim() || "Player";
+    if (name) {
+        myName = name;
+        loginScreen.style.display = 'none';
+        isLoggedIn = true;
+        socket.emit('joinGame', { name: myName });
+        controls.lock();
+    }
+});
+
+// Chat Logic
+function addChatMessage(name, text, isSystem = false) {
+    const msgDiv = document.createElement('div');
+    msgDiv.classList.add('chat-message');
+    if (isSystem) msgDiv.classList.add('system-message');
+    msgDiv.textContent = isSystem ? text : `${name}: ${text}`;
+    chatMessages.appendChild(msgDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Toggle Chat
+document.addEventListener('keydown', (e) => {
+    // Open chat with Enter if logged in
+    if (e.code === 'Enter' && isLoggedIn) {
+        if (isChatOpen) {
+            // Send message if not empty
+            const text = chatInput.value.trim();
+            if (text) {
+                socket.emit('chatMessage', text);
+            }
+            chatInput.value = '';
+            chatInput.style.display = 'none';
+            chatInput.blur();
+            isChatOpen = false;
+            controls.lock();
+        } else {
+            // Open chat
+            isChatOpen = true;
+            chatInput.style.display = 'block';
+            chatInput.focus();
+            controls.unlock();
+        }
+    }
+});
+
+// Stop movement keys from affecting game when typing
+chatInput.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+});
+
+socket.on('chatMessage', (data) => {
+    addChatMessage(data.name, data.text);
+});
+
+socket.on('notification', (text) => {
+    addChatMessage(null, text, true);
+});
+
+// Environment
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const boxMat = new THREE.MeshStandardMaterial({ color: 0x808080 });
+
 // 3rd Person View State
 let isThirdPerson = false;
 let myPlayerMesh = null;
 
 document.addEventListener('keydown', (e) => {
+    if (isChatOpen) return; // Ignore game keys if chatting
+
     if (e.code === 'KeyP') {
         isThirdPerson = !isThirdPerson;
         if (myPlayerMesh) {
@@ -198,10 +276,6 @@ document.addEventListener('keydown', (e) => {
         }
     }
 });
-
-// Environment
-const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-const boxMat = new THREE.MeshStandardMaterial({ color: 0x808080 });
 
 socket.on('init', (data) => {
     myId = data.id;
@@ -351,7 +425,13 @@ const clock = new THREE.Clock();
 function animate() {
     requestAnimationFrame(animate);
 
-    if (controls.isLocked || isMobile) {
+    // Only process input if logged in
+    if (!isLoggedIn) {
+        renderer.render(scene, camera);
+        return;
+    }
+
+    if ((controls.isLocked || isMobile) && !isChatOpen) {
         // Calculate movement direction relative to camera
         const direction = new THREE.Vector3();
         const front = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);

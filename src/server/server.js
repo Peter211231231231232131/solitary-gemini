@@ -63,45 +63,59 @@ for (let i = 0; i < 20; i++) {
 io.on('connection', (socket) => {
     console.log('User connected:', socket.id);
 
-    // Create player body - Capsule shape (cylinder + 2 spheres at ends)
-    // Capsule: height 1.5, radius 0.4
-    const capsuleRadius = 0.4;
-    const capsuleHeight = 1.5; // Total height = capsuleHeight + 2 * capsuleRadius
+    // Initial state sent to client (without adding them to world yet)
+    socket.emit('init', { id: socket.id, players: getPlayersState(), obstacles: obstacles });
 
-    const body = new CANNON.Body({
-        mass: 1, // kg
-        position: new CANNON.Vec3(0, 5, 0), // Spawn position
-        material: defaultMaterial,
-        fixedRotation: true
+    socket.on('joinGame', (data) => {
+        if (players[socket.id]) return; // Already joined
+
+        // Create player body - Capsule shape (cylinder + 2 spheres at ends)
+        // Capsule: height 1.5, radius 0.4
+        const capsuleRadius = 0.4;
+        const capsuleHeight = 1.5;
+
+        const body = new CANNON.Body({
+            mass: 1, // kg
+            position: new CANNON.Vec3(0, 5, 0), // Spawn position
+            material: defaultMaterial,
+            fixedRotation: true
+        });
+
+        const cylinderShape = new CANNON.Cylinder(capsuleRadius, capsuleRadius, capsuleHeight, 8);
+        body.addShape(cylinderShape, new CANNON.Vec3(0, 0, 0));
+
+        const topSphere = new CANNON.Sphere(capsuleRadius);
+        body.addShape(topSphere, new CANNON.Vec3(0, capsuleHeight / 2, 0));
+
+        const bottomSphere = new CANNON.Sphere(capsuleRadius);
+        body.addShape(bottomSphere, new CANNON.Vec3(0, -capsuleHeight / 2, 0));
+
+        body.linearDamping = 0.9;
+        world.addBody(body);
+
+        const color = '#' + Math.floor(Math.random() * 16777215).toString(16);
+        const name = data.name || "Player";
+
+        players[socket.id] = {
+            id: socket.id,
+            body: body,
+            input: { x: 0, z: 0, jump: false, yaw: 0, sprint: false, crouch: false },
+            color: color,
+            yaw: 0,
+            name: name
+        };
+
+        // Notify everyone (including self to spawn mesh)
+        io.emit('playerJoined', { id: socket.id, position: body.position, color: color, yaw: 0, name: name });
+        io.emit('notification', `${name} joined the game`);
     });
 
-    // Cylinder for the middle
-    const cylinderShape = new CANNON.Cylinder(capsuleRadius, capsuleRadius, capsuleHeight, 8);
-    body.addShape(cylinderShape, new CANNON.Vec3(0, 0, 0));
-
-    // Sphere at top
-    const topSphere = new CANNON.Sphere(capsuleRadius);
-    body.addShape(topSphere, new CANNON.Vec3(0, capsuleHeight / 2, 0));
-
-    // Sphere at bottom
-    const bottomSphere = new CANNON.Sphere(capsuleRadius);
-    body.addShape(bottomSphere, new CANNON.Vec3(0, -capsuleHeight / 2, 0));
-
-    body.linearDamping = 0.9;
-    world.addBody(body);
-
-    const color = '#' + Math.floor(Math.random() * 16777215).toString(16);
-
-    players[socket.id] = {
-        id: socket.id,
-        body: body,
-        input: { x: 0, z: 0, jump: false, yaw: 0 },
-        color: color,
-        yaw: 0
-    };
-
-    socket.emit('init', { id: socket.id, players: getPlayersState(), obstacles: obstacles });
-    socket.broadcast.emit('playerJoined', { id: socket.id, position: body.position, color: color, yaw: 0 });
+    socket.on('chatMessage', (text) => {
+        if (players[socket.id]) {
+            const name = players[socket.id].name;
+            io.emit('chatMessage', { id: socket.id, name: name, text: text });
+        }
+    });
 
     socket.on('input', (data) => {
         if (players[socket.id]) {
@@ -114,8 +128,10 @@ io.on('connection', (socket) => {
         console.log('User disconnected:', socket.id);
         if (players[socket.id]) {
             world.removeBody(players[socket.id].body);
+            const name = players[socket.id].name;
             delete players[socket.id];
             io.emit('playerLeft', socket.id);
+            io.emit('notification', `${name} left the game`);
         }
     });
 });
@@ -129,7 +145,8 @@ function getPlayersState() {
             quaternion: players[id].body.quaternion,
             color: players[id].color,
             yaw: players[id].yaw,
-            crouch: players[id].input.crouch || false
+            crouch: players[id].input.crouch || false,
+            name: players[id].name
         };
     }
     return state;
