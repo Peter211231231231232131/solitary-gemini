@@ -247,47 +247,38 @@ socket.on('playerLeft', (id) => {
     removePlayer(id);
 });
 
+// Client-side prediction state
+let predictedPosition = new THREE.Vector3(0, 5, 0);
+let lastServerPosition = new THREE.Vector3(0, 5, 0);
+
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
-            // My Player Logic
-            const serverPos = new THREE.Vector3().copy(state[id].position);
+            // Server reconciliation - update predicted position to match server
+            lastServerPosition.copy(state[id].position);
+
+            // Snap to server if too far off (reconciliation)
+            const drift = predictedPosition.distanceTo(lastServerPosition);
+            if (drift > 2) {
+                predictedPosition.copy(lastServerPosition);
+            } else {
+                // Slowly correct towards server position
+                predictedPosition.lerp(lastServerPosition, 0.1);
+            }
 
             if (myPlayerMesh) {
-                myPlayerMesh.mesh.position.copy(serverPos);
+                myPlayerMesh.mesh.position.copy(predictedPosition);
                 myPlayerMesh.mesh.position.y -= 1;
                 myPlayerMesh.mesh.rotation.y = camera.rotation.y;
 
-                // Animation
-                const velocity = new THREE.Vector3(
-                    serverPos.x - myPlayerMesh.lastPos.x,
-                    0,
-                    serverPos.z - myPlayerMesh.lastPos.z
-                ).length();
+                // Animation based on movement
+                const velocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
                 myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01);
-                myPlayerMesh.lastPos.copy(serverPos);
+                myPlayerMesh.lastPos.copy(predictedPosition);
             }
 
-            // Camera Logic - NO lerp for local player (causes delay)
-            if (isThirdPerson) {
-                // 3rd person: Camera behind and above player
-                // Calculate offset based on yaw only (not pitch) to keep camera level
-                const yaw = camera.rotation.y;
-                const distance = 5;
-                const height = 2;
-
-                const offsetX = Math.sin(yaw) * distance;
-                const offsetZ = Math.cos(yaw) * distance;
-
-                camera.position.set(
-                    serverPos.x + offsetX,
-                    serverPos.y + height,
-                    serverPos.z + offsetZ
-                );
-            } else {
-                // 1st person: Camera at player position
-                camera.position.copy(serverPos);
-            }
+            // Camera follows predicted position (not server position)
+            updateCamera(predictedPosition);
 
         } else {
             if (!players[id]) {
@@ -305,7 +296,6 @@ socket.on('state', (state) => {
                 if (state[id].yaw !== undefined) {
                     const targetYaw = state[id].yaw;
                     const currentYaw = humanoid.mesh.rotation.y;
-                    // Lerp with angle wrapping
                     let diff = targetYaw - currentYaw;
                     while (diff > Math.PI) diff -= Math.PI * 2;
                     while (diff < -Math.PI) diff += Math.PI * 2;
@@ -320,6 +310,32 @@ socket.on('state', (state) => {
         }
     }
 });
+
+function updateCamera(playerPos) {
+    if (isThirdPerson) {
+        // 3rd person: Camera behind and above player, looking AT the player
+        const yaw = camera.rotation.y;
+        const pitch = camera.rotation.x;
+        const distance = 5;
+        const height = 2;
+
+        // Calculate camera position behind player
+        const offsetX = Math.sin(yaw) * distance;
+        const offsetZ = Math.cos(yaw) * distance;
+
+        camera.position.set(
+            playerPos.x + offsetX,
+            playerPos.y + height,
+            playerPos.z + offsetZ
+        );
+
+        // Make camera look at player center
+        // Note: This will override rotation, but PointerLock handles mouse input separately
+    } else {
+        // 1st person: Camera at player position
+        camera.position.copy(playerPos);
+    }
+}
 
 function addPlayer(id, position, colorCode) {
     const humanoid = new Humanoid(colorCode);
@@ -340,6 +356,8 @@ function removePlayer(id) {
 
 // Game Loop
 const clock = new THREE.Clock();
+const GRAVITY = 20;
+const DELTA = 1 / 60;
 
 function animate() {
     requestAnimationFrame(animate);
@@ -363,12 +381,20 @@ function animate() {
 
         if (direction.length() > 0) direction.normalize();
 
-        // Send input to server
-        // Get camera yaw (rotation around Y axis in radians)
-        // We get it from the camera's rotation Euler, but order controls what Y means.
-        // We set order to YXZ so .y is the yaw.
-        const yaw = camera.rotation.y;
+        // Speed calculation
+        let speed = 8;
+        if (moveState.sprint) speed = 12;
+        else if (moveState.crouch) speed = 4;
 
+        // CLIENT-SIDE PREDICTION: Apply movement locally
+        predictedPosition.x += direction.x * speed * DELTA;
+        predictedPosition.z += direction.z * speed * DELTA;
+
+        // Update camera immediately with predicted position
+        updateCamera(predictedPosition);
+
+        // Send input to server
+        const yaw = camera.rotation.y;
         socket.emit('input', {
             x: direction.x,
             z: direction.z,
