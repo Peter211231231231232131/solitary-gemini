@@ -167,32 +167,19 @@ if (isMobile) {
     }, { passive: false });
 }
 
+import { Humanoid } from './Humanoid.js';
+
+// ... (previous imports)
+
 // Players
 const players = {};
-const playerGeo = new THREE.SphereGeometry(1, 32, 32);
+// Removed sphere geometry/material as we use Humanoid class now
 
-// Environment
-const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-const boxMat = new THREE.MeshStandardMaterial({ color: 0x808080 });
-
-// Networking
-let myId = null;
+// ... (code)
 
 socket.on('init', (data) => {
     myId = data.id;
-
-    // Spawn Obstacles
-    if (data.obstacles) {
-        data.obstacles.forEach(obs => {
-            const mesh = new THREE.Mesh(boxGeo, boxMat);
-            mesh.position.set(obs.position.x, obs.position.y, obs.position.z);
-            mesh.scale.set(obs.size.x, obs.size.y, obs.size.z);
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            scene.add(mesh);
-        });
-    }
-
+    // ... (obstacles)
     // Spawn existing players
     for (const id in data.players) {
         if (id !== myId) {
@@ -214,34 +201,52 @@ socket.on('playerLeft', (id) => {
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
-            // Update camera position based on server (naive reconciliation)
             camera.position.copy(state[id].position);
         } else {
             if (!players[id]) {
-                // If we get an update for a player we don't have (rare race condition), spawn them
                 addPlayer(id, state[id].position, state[id].color);
             }
             if (players[id]) {
-                const mesh = players[id];
-                mesh.position.copy(state[id].position);
-                mesh.quaternion.copy(state[id].quaternion);
+                const humanoid = players[id];
+                // Interpolate position
+                humanoid.mesh.position.copy(state[id].position);
+                // Apply Y offset to align feet with ground (since server position is center mass)
+                humanoid.mesh.position.y -= 1;
+
+                // Update Rotation (Yaw)
+                if (state[id].yaw !== undefined) {
+                    humanoid.mesh.rotation.y = state[id].yaw;
+                }
+
+                // Animation
+                // Check if moving
+                const isMoving = false; // Need velocity or prev position to determine, for now static
+                const velocity = new THREE.Vector3(
+                    state[id].position.x - humanoid.lastPos.x,
+                    0,
+                    state[id].position.z - humanoid.lastPos.z
+                ).length();
+
+                humanoid.update(clock.getElapsedTime(), velocity > 0.01);
+                humanoid.lastPos.copy(state[id].position);
             }
         }
     }
 });
 
 function addPlayer(id, position, colorCode) {
-    const mat = new THREE.MeshStandardMaterial({ color: colorCode || 0xff0000 });
-    const mesh = new THREE.Mesh(playerGeo, mat);
-    mesh.position.copy(position);
-    mesh.castShadow = true;
-    scene.add(mesh);
-    players[id] = mesh;
+    const humanoid = new Humanoid(colorCode);
+    humanoid.mesh.position.copy(position);
+    humanoid.mesh.position.y -= 1; // Offset
+    humanoid.lastPos = new THREE.Vector3().copy(position);
+
+    scene.add(humanoid.mesh);
+    players[id] = humanoid;
 }
 
 function removePlayer(id) {
     if (players[id]) {
-        scene.remove(players[id]);
+        scene.remove(players[id].mesh);
         delete players[id];
     }
 }
@@ -272,10 +277,16 @@ function animate() {
         if (direction.length() > 0) direction.normalize();
 
         // Send input to server
+        // Get camera yaw (rotation around Y axis in radians)
+        // We get it from the camera's rotation Euler, but order controls what Y means.
+        // We set order to YXZ so .y is the yaw.
+        const yaw = camera.rotation.y;
+
         socket.emit('input', {
             x: direction.x,
             z: direction.z,
-            jump: moveState.jump
+            jump: moveState.jump,
+            yaw: yaw
         });
     }
 

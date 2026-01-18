@@ -81,16 +81,19 @@ io.on('connection', (socket) => {
     players[socket.id] = {
         id: socket.id,
         body: body,
-        input: { x: 0, z: 0, jump: false },
-        color: color
+        input: { x: 0, z: 0, jump: false, yaw: 0 },
+        color: color,
+        yaw: 0
     };
 
     socket.emit('init', { id: socket.id, players: getPlayersState(), obstacles: obstacles });
-    socket.broadcast.emit('playerJoined', { id: socket.id, position: body.position, color: color });
+    socket.broadcast.emit('playerJoined', { id: socket.id, position: body.position, color: color, yaw: 0 });
 
     socket.on('input', (data) => {
         if (players[socket.id]) {
             players[socket.id].input = data;
+            // Update yaw immediately from input as it doesn't need physics simulation
+            players[socket.id].yaw = data.yaw || 0;
         }
     });
 
@@ -111,7 +114,8 @@ function getPlayersState() {
             id: id,
             position: players[id].body.position,
             quaternion: players[id].body.quaternion,
-            color: players[id].color
+            color: players[id].color,
+            yaw: players[id].yaw
         };
     }
     return state;
