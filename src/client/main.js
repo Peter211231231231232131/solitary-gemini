@@ -247,46 +247,29 @@ socket.on('playerLeft', (id) => {
     removePlayer(id);
 });
 
-// Server Reconciliation State
-let inputSequence = 0;
-let pendingInputs = [];
-let serverPosition = new THREE.Vector3(0, 5, 0);
+// Client-side prediction state - REVERTED TO DIRECT SERVER POS
 let predictedPosition = new THREE.Vector3(0, 5, 0);
-const DELTA = 1 / 60;
 
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
-            // Get server position and last processed sequence
-            serverPosition.copy(state[id].position);
-            const lastProcessedSeq = state[id].seq || 0;
-
-            // Remove confirmed inputs from pending buffer
-            pendingInputs = pendingInputs.filter(input => input.seq > lastProcessedSeq);
-
-            // Start from server position and re-apply pending inputs
-            predictedPosition.copy(serverPosition);
-
-            for (const input of pendingInputs) {
-                // Re-apply each pending input
-                predictedPosition.x += input.x * input.speed * DELTA;
-                predictedPosition.z += input.z * input.speed * DELTA;
-            }
+            // Server position is authoritative - use it directly (no reconciliation/prediction loop)
+            const serverPos = new THREE.Vector3().copy(state[id].position);
 
             if (myPlayerMesh) {
-                myPlayerMesh.mesh.position.copy(predictedPosition);
+                myPlayerMesh.mesh.position.copy(serverPos);
                 myPlayerMesh.mesh.position.y -= 1;
                 myPlayerMesh.mesh.rotation.y = camera.rotation.y;
 
                 // Animation
-                const velocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
+                const velocity = serverPos.distanceTo(myPlayerMesh.lastPos);
                 const isCrouching = moveState.crouch;
                 myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
-                myPlayerMesh.lastPos.copy(predictedPosition);
+                myPlayerMesh.lastPos.copy(serverPos);
             }
 
-            // Camera follows predicted position
-            updateCamera(predictedPosition);
+            // Camera follows server position directly
+            updateCamera(serverPos);
 
         } else {
             if (!players[id]) {
@@ -395,36 +378,19 @@ function animate() {
         predictedPosition.x += direction.x * speed * DELTA;
         predictedPosition.z += direction.z * speed * DELTA;
 
-        // Update camera immediately (feels responsive)
-        updateCamera(predictedPosition);
 
-        // Update local mesh immediately
-        if (myPlayerMesh) {
-            myPlayerMesh.mesh.position.copy(predictedPosition);
-            myPlayerMesh.mesh.position.y -= 1;
-        }
+        if (direction.length() > 0) direction.normalize();
 
-        // Store input with sequence number for reconciliation
-        inputSequence++;
-        const input = {
-            seq: inputSequence,
+        // Send input to server
+        const yaw = camera.rotation.y;
+        socket.emit('input', {
             x: direction.x,
             z: direction.z,
-            speed: speed,
             jump: moveState.jump,
             sprint: moveState.sprint,
             crouch: moveState.crouch,
-            yaw: camera.rotation.y
-        };
-        pendingInputs.push(input);
-
-        // Keep buffer from growing too large
-        if (pendingInputs.length > 60) {
-            pendingInputs.shift();
-        }
-
-        // Send input to server
-        socket.emit('input', input);
+            yaw: yaw
+        });
     }
 
     renderer.render(scene, camera);

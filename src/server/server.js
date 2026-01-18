@@ -107,8 +107,6 @@ io.on('connection', (socket) => {
         if (players[socket.id]) {
             players[socket.id].input = data;
             players[socket.id].yaw = data.yaw || 0;
-            // Track last processed sequence number for reconciliation
-            players[socket.id].lastSeq = data.seq || 0;
         }
     });
 
@@ -131,8 +129,7 @@ function getPlayersState() {
             quaternion: players[id].body.quaternion,
             color: players[id].color,
             yaw: players[id].yaw,
-            crouch: players[id].input.crouch || false,
-            seq: players[id].lastSeq || 0  // Send back last processed sequence
+            crouch: players[id].input.crouch || false
         };
     }
     return state;
