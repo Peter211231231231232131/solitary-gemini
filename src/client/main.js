@@ -144,7 +144,7 @@ scene.add(ballMesh);
 
 // Hoops Rendering
 const hoopGroup = new THREE.Group();
-const createHoop = (x, z, color) => {
+const createHoop = (x, z, color, teamName) => {
     // Pole
     const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, 3);
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
@@ -166,9 +166,28 @@ const createHoop = (x, z, color) => {
     rim.rotation.x = Math.PI / 2;
     rim.position.set(x + (x < 0 ? 0.4 : -0.4), 3.0, z);
     scene.add(rim);
+
+    // Label (Simple DOM-based label or World Space Canvas if we had time, let's use a 3D sprite for simplicity)
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.font = 'bold 48px Arial';
+    ctx.fillStyle = 'white';
+    ctx.textAlign = 'center';
+    ctx.fillText(teamName, 128, 80);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const spriteMat = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.position.set(x, 4.5, z);
+    sprite.scale.set(2, 1, 1);
+    scene.add(sprite);
 };
-createHoop(-13.5, 0, 0xff0000); // Team 1 Side
-createHoop(13.5, 0, 0x0000ff);  // Team 2 Side
+createHoop(-13.5, 0, 0xff0000, "TEAM 1"); // Team 1 Side
+createHoop(13.5, 0, 0x0000ff, "TEAM 2");  // Team 2 Side
 
 // Score HUD
 const scoreHUD = document.createElement('div');
@@ -503,19 +522,20 @@ socket.on('init', (data) => {
     myPlayerMesh = new Humanoid(myColor);
     myPlayerMesh.mesh.visible = false; // Start in 1st person
     myPlayerMesh.lastPos = new THREE.Vector3().copy(startPos);
+    myPlayerMesh.team = data.players[myId] ? data.players[myId].team : 1;
     scene.add(myPlayerMesh.mesh);
 
     // Spawn existing players
     for (const id in data.players) {
         if (id !== myId) {
-            addPlayer(id, data.players[id].position, data.players[id].color);
+            addPlayer(id, data.players[id].position, data.players[id].color, data.players[id].team);
         }
     }
 });
 
 socket.on('playerJoined', (data) => {
     if (data.id !== myId) {
-        addPlayer(data.id, data.position, data.color);
+        addPlayer(data.id, data.position, data.color, data.team);
     }
 });
 socket.on('playerLeft', (id) => {
@@ -584,7 +604,7 @@ socket.on('state', (state) => {
 
         } else {
             if (!players[id]) {
-                addPlayer(id, playerStates[id].position, playerStates[id].color);
+                addPlayer(id, playerStates[id].position, playerStates[id].color, playerStates[id].team);
             }
             if (players[id]) {
                 const humanoid = players[id];
@@ -636,11 +656,12 @@ function updateCamera(playerPos) {
     }
 }
 
-function addPlayer(id, position, colorCode) {
+function addPlayer(id, position, colorCode, team) {
     const humanoid = new Humanoid(colorCode);
     humanoid.mesh.position.copy(position);
     humanoid.mesh.position.y -= 1;
     humanoid.lastPos = new THREE.Vector3().copy(position);
+    humanoid.team = team;
 
     scene.add(humanoid.mesh);
     players[id] = humanoid;

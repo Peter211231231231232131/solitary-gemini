@@ -68,9 +68,22 @@ hoops.forEach(hoop => {
     world.addBody(bbBody);
     obstacles.push({ position: bbBody.position, size: bbSize, id: `${hoop.id}_bb` });
 
-    // Rim (Simplified as a small box sensor for now, or just a static ring)
-    const rimSize = { x: 0.6, y: 0.1, z: 0.6 };
-    // We'll use a sensor for scoring later in the loop
+    // Rim (Simplified as a ring of boxes)
+    const rimRadius = 0.4;
+    const rimThickness = 0.05;
+    const segments = 8;
+    for (let i = 0; i < segments; i++) {
+        const theta = (i / segments) * Math.PI * 2;
+        const rimPartSize = new CANNON.Vec3(0.05, 0.05, 0.15);
+        const rimPartShape = new CANNON.Box(rimPartSize);
+        const rimPartBody = new CANNON.Body({ mass: 0, material: defaultMaterial });
+        rimPartBody.addShape(rimPartShape);
+        const rimX = hoop.position.x + (hoop.team === 1 ? 0.4 : -0.4) + Math.cos(theta) * rimRadius;
+        const rimZ = hoop.position.z + Math.sin(theta) * rimRadius;
+        rimPartBody.position.set(rimX, hoop.position.y, rimZ);
+        rimPartBody.quaternion.setFromEuler(0, -theta, 0);
+        world.addBody(rimPartBody);
+    }
 });
 
 // Basketball
@@ -107,13 +120,24 @@ io.on('connection', (socket) => {
     socket.on('joinGame', (data) => {
         if (players[socket.id]) return; // Already joined
 
+        // Team Auto-Assignment
+        let team1Count = 0;
+        let team2Count = 0;
+        for (const id in players) {
+            if (players[id].team === 1) team1Count++;
+            else if (players[id].team === 2) team2Count++;
+        }
+
+        const team = (team1Count <= team2Count) ? 1 : 2;
+        const color = (team === 1) ? 0xff0000 : 0x0000ff; // Team 1: Red, Team 2: Blue
+
         // Use Box to match client AABB Exactly
-        const boxSize = new CANNON.Vec3(0.4, 0.8, 0.4); // Total size 0.8x1.6x0.8
+        const boxSize = new CANNON.Vec3(0.4, 0.8, 0.4);
         const shape = new CANNON.Box(boxSize);
 
         const body = new CANNON.Body({
             mass: 1,
-            position: new CANNON.Vec3((Math.random() - 0.5) * 10, 5, (Math.random() - 0.5) * 10),
+            position: new CANNON.Vec3(team === 1 ? -5 : 5, 5, (Math.random() - 0.5) * 5),
             material: defaultMaterial,
             fixedRotation: true
         });
@@ -122,7 +146,6 @@ io.on('connection', (socket) => {
         body.linearDamping = 0.0;
         world.addBody(body);
 
-        const color = '#' + Math.floor(Math.random() * 16777215).toString(16);
         const name = data.name || "Player";
 
         players[socket.id] = {
@@ -130,13 +153,14 @@ io.on('connection', (socket) => {
             body: body,
             input: { x: 0, z: 0, jump: false, yaw: 0, sprint: false, crouch: false, shoot: false },
             color: color,
+            team: team,
             yaw: 0,
             name: name
         };
 
         // Notify everyone 
-        io.emit('playerJoined', { id: socket.id, position: body.position, color: color, yaw: 0, name: name });
-        io.emit('notification', `${name} joined the game`);
+        io.emit('playerJoined', { id: socket.id, position: body.position, color: color, team: team, yaw: 0, name: name });
+        io.emit('notification', `${name} joined Team ${team}!`);
         io.emit('scoreUpdate', scores);
     });
 
@@ -214,6 +238,7 @@ function getPlayersState() {
             id: id,
             position: players[id].body.position,
             color: players[id].color,
+            team: players[id].team,
             yaw: players[id].yaw,
             crouch: players[id].input.crouch || false,
             name: players[id].name,
@@ -275,10 +300,13 @@ setInterval(() => {
             io.emit('scoreUpdate', scores);
             io.emit('notification', `GOAL! ${hoop.team === 1 ? 'Team 2' : 'Team 1'} scores!`);
 
-            // Reset ball
-            ballBody.position.set(0, 5, 0);
-            ballBody.velocity.set(0, 0, 0);
+            // Reset ball with a slight delay to let it fall through
             ballOwner = null;
+            setTimeout(() => {
+                ballBody.position.set(0, 5, 0);
+                ballBody.velocity.set(0, 0, 0);
+                ballBody.angularVelocity.set(0, 0, 0);
+            }, 1000);
         }
     });
 
