@@ -276,7 +276,7 @@ let myName = "Player";
 let isChatOpen = false;
 
 // Interact with Login
-playButton.addEventListener('click', () => {
+function joinGame() {
     const name = usernameInput.value.trim() || "Player";
     if (name) {
         myName = name;
@@ -285,7 +285,17 @@ playButton.addEventListener('click', () => {
         socket.emit('joinGame', { name: myName });
         controls.lock();
     }
+}
+
+playButton.addEventListener('click', joinGame);
+usernameInput.addEventListener('keydown', (e) => {
+    if (e.code === 'Enter') {
+        joinGame();
+    }
 });
+
+// Auto-focus username on load
+usernameInput.focus();
 
 // Chat Logic
 function addChatMessage(name, text, isSystem = false) {
@@ -301,18 +311,7 @@ function addChatMessage(name, text, isSystem = false) {
 document.addEventListener('keydown', (e) => {
     // Open chat with Enter if logged in
     if (e.code === 'Enter' && isLoggedIn) {
-        if (isChatOpen) {
-            // Send message if not empty
-            const text = chatInput.value.trim();
-            if (text) {
-                socket.emit('chatMessage', text);
-            }
-            chatInput.value = '';
-            chatInput.style.display = 'none';
-            chatInput.blur();
-            isChatOpen = false;
-            controls.lock();
-        } else {
+        if (!isChatOpen) {
             // Open chat
             isChatOpen = true;
             chatInput.style.display = 'block';
@@ -322,9 +321,25 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Stop movement keys from affecting game when typing
+// Chat Input specific behavior
 chatInput.addEventListener('keydown', (e) => {
-    e.stopPropagation();
+    if (e.code === 'Enter') {
+        // Send message
+        const text = chatInput.value.trim();
+        if (text) {
+            socket.emit('chatMessage', text);
+        }
+        chatInput.value = '';
+        chatInput.style.display = 'none';
+        chatInput.blur();
+        isChatOpen = false;
+        controls.lock();
+    }
+
+    // Stop movement keys but let ENTER bubble or handle it above
+    if (e.code !== 'Enter') {
+        e.stopPropagation();
+    }
 });
 
 socket.on('chatMessage', (data) => {
