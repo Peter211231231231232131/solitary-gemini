@@ -260,18 +260,26 @@ socket.on('state', (state) => {
                 myPlayerMesh.lastPos.copy(serverPos);
             }
 
-            // Camera Logic with smooth interpolation
-            let targetCamPos;
+            // Camera Logic - NO lerp for local player (causes delay)
             if (isThirdPerson) {
-                const offset = new THREE.Vector3(0, 0, 4);
-                offset.applyQuaternion(camera.quaternion);
-                targetCamPos = serverPos.clone().add(offset);
-            } else {
-                targetCamPos = serverPos;
-            }
+                // 3rd person: Camera behind and above player
+                // Calculate offset based on yaw only (not pitch) to keep camera level
+                const yaw = camera.rotation.y;
+                const distance = 5;
+                const height = 2;
 
-            // Smooth camera movement (lerp) - reduces jitter
-            camera.position.lerp(targetCamPos, 0.3);
+                const offsetX = Math.sin(yaw) * distance;
+                const offsetZ = Math.cos(yaw) * distance;
+
+                camera.position.set(
+                    serverPos.x + offsetX,
+                    serverPos.y + height,
+                    serverPos.z + offsetZ
+                );
+            } else {
+                // 1st person: Camera at player position
+                camera.position.copy(serverPos);
+            }
 
         } else {
             if (!players[id]) {
