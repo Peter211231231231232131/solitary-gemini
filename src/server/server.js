@@ -140,24 +140,19 @@ setInterval(() => {
     // Apply inputs
     for (const id in players) {
         const p = players[id];
-        const inputSpeed = 10;
+        const inputSpeed = 8; // Slightly slower for more control
 
-        // Simple movement logic (velocity based)
-        // Reset X/Z velocity to handle movement stops immediately (simplified)
-        // In a real physics game you'd apply forces, but for FPS movement usually setting velocity is easier for responsiveness
-
-        // We preserve Y velocity (gravity)
+        // Preserve Y velocity (gravity)
         const currentY = p.body.velocity.y;
 
-        // Simple WASD logic assumes input is a direction vector
-        // In reality we need camera direction.
-        // For now, let's assume inputs are relative to world for simplicity or camera logic is handled client side and sent as direction.
-        // Let's assume input.x and input.z are world-space direction components sent by client.
-
+        // Set horizontal velocity from input
         p.body.velocity.set(p.input.x * inputSpeed, currentY, p.input.z * inputSpeed);
 
-        if (p.input.jump && Math.abs(currentY) < 0.1) { // Floating point epsilon for grounded check
-            p.body.velocity.y = 5;
+        // Jump with better ground check (y position near ground)
+        // Ground is at y=0, capsule bottom is at body.y - 1.15 (half height + sphere)
+        const isGrounded = p.body.position.y < 2.0 && Math.abs(currentY) < 0.5;
+        if (p.input.jump && isGrounded) {
+            p.body.velocity.y = 7; // Higher jump
         }
     }
 

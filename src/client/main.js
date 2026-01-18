@@ -243,30 +243,35 @@ socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
             // My Player Logic
+            const serverPos = new THREE.Vector3().copy(state[id].position);
+
             if (myPlayerMesh) {
-                const pos = state[id].position;
-                myPlayerMesh.mesh.position.copy(pos);
+                myPlayerMesh.mesh.position.copy(serverPos);
                 myPlayerMesh.mesh.position.y -= 1;
                 myPlayerMesh.mesh.rotation.y = camera.rotation.y;
 
                 // Animation
                 const velocity = new THREE.Vector3(
-                    pos.x - myPlayerMesh.lastPos.x,
+                    serverPos.x - myPlayerMesh.lastPos.x,
                     0,
-                    pos.z - myPlayerMesh.lastPos.z
+                    serverPos.z - myPlayerMesh.lastPos.z
                 ).length();
                 myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01);
-                myPlayerMesh.lastPos.copy(pos);
+                myPlayerMesh.lastPos.copy(serverPos);
             }
 
-            // Camera Logic
+            // Camera Logic with smooth interpolation
+            let targetCamPos;
             if (isThirdPerson) {
                 const offset = new THREE.Vector3(0, 0, 4);
                 offset.applyQuaternion(camera.quaternion);
-                camera.position.copy(state[id].position).add(offset);
+                targetCamPos = serverPos.clone().add(offset);
             } else {
-                camera.position.copy(state[id].position);
+                targetCamPos = serverPos;
             }
+
+            // Smooth camera movement (lerp) - reduces jitter
+            camera.position.lerp(targetCamPos, 0.3);
 
         } else {
             if (!players[id]) {
