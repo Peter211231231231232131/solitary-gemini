@@ -247,31 +247,46 @@ socket.on('playerLeft', (id) => {
     removePlayer(id);
 });
 
-// Client-side prediction state
+// Server Reconciliation State
+let inputSequence = 0;
+let pendingInputs = [];
+let serverPosition = new THREE.Vector3(0, 5, 0);
 let predictedPosition = new THREE.Vector3(0, 5, 0);
-let lastServerPosition = new THREE.Vector3(0, 5, 0);
+const DELTA = 1 / 60;
 
 socket.on('state', (state) => {
     for (const id in state) {
         if (id === myId) {
-            // Server position is authoritative - use it directly (no lerp delay)
-            const serverPos = new THREE.Vector3().copy(state[id].position);
-            predictedPosition.copy(serverPos);
+            // Get server position and last processed sequence
+            serverPosition.copy(state[id].position);
+            const lastProcessedSeq = state[id].seq || 0;
+
+            // Remove confirmed inputs from pending buffer
+            pendingInputs = pendingInputs.filter(input => input.seq > lastProcessedSeq);
+
+            // Start from server position and re-apply pending inputs
+            predictedPosition.copy(serverPosition);
+
+            for (const input of pendingInputs) {
+                // Re-apply each pending input
+                predictedPosition.x += input.x * input.speed * DELTA;
+                predictedPosition.z += input.z * input.speed * DELTA;
+            }
 
             if (myPlayerMesh) {
-                myPlayerMesh.mesh.position.copy(serverPos);
+                myPlayerMesh.mesh.position.copy(predictedPosition);
                 myPlayerMesh.mesh.position.y -= 1;
                 myPlayerMesh.mesh.rotation.y = camera.rotation.y;
 
-                // Animation based on movement AND crouch
-                const velocity = serverPos.distanceTo(myPlayerMesh.lastPos);
+                // Animation
+                const velocity = predictedPosition.distanceTo(myPlayerMesh.lastPos);
                 const isCrouching = moveState.crouch;
                 myPlayerMesh.update(clock.getElapsedTime(), velocity > 0.01, isCrouching);
-                myPlayerMesh.lastPos.copy(serverPos);
+                myPlayerMesh.lastPos.copy(predictedPosition);
             }
 
-            // Camera follows server position directly (no prediction delay)
-            updateCamera(serverPos);
+            // Camera follows predicted position
+            updateCamera(predictedPosition);
 
         } else {
             if (!players[id]) {
@@ -282,7 +297,7 @@ socket.on('state', (state) => {
                 const targetPos = new THREE.Vector3().copy(state[id].position);
                 targetPos.y -= 1;
 
-                // Smooth interpolation (lerp) for other players
+                // Smooth interpolation for other players
                 humanoid.mesh.position.lerp(targetPos, 0.2);
 
                 // Smooth rotation interpolation
@@ -307,13 +322,10 @@ socket.on('state', (state) => {
 
 function updateCamera(playerPos) {
     if (isThirdPerson) {
-        // 3rd person: Camera behind and above player, looking AT the player
         const yaw = camera.rotation.y;
-        const pitch = camera.rotation.x;
         const distance = 5;
         const height = 2;
 
-        // Calculate camera position behind player
         const offsetX = Math.sin(yaw) * distance;
         const offsetZ = Math.cos(yaw) * distance;
 
@@ -322,11 +334,7 @@ function updateCamera(playerPos) {
             playerPos.y + height,
             playerPos.z + offsetZ
         );
-
-        // Make camera look at player center
-        // Note: This will override rotation, but PointerLock handles mouse input separately
     } else {
-        // 1st person: Camera at player position
         camera.position.copy(playerPos);
     }
 }
@@ -334,7 +342,7 @@ function updateCamera(playerPos) {
 function addPlayer(id, position, colorCode) {
     const humanoid = new Humanoid(colorCode);
     humanoid.mesh.position.copy(position);
-    humanoid.mesh.position.y -= 1; // Offset
+    humanoid.mesh.position.y -= 1;
     humanoid.lastPos = new THREE.Vector3().copy(position);
 
     scene.add(humanoid.mesh);
@@ -350,8 +358,6 @@ function removePlayer(id) {
 
 // Game Loop
 const clock = new THREE.Clock();
-const GRAVITY = 20;
-const DELTA = 1 / 60;
 
 function animate() {
     requestAnimationFrame(animate);
@@ -362,7 +368,6 @@ function animate() {
         const front = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
 
-        // Flatten to XZ plane
         front.y = 0;
         front.normalize();
         right.y = 0;
@@ -375,16 +380,45 @@ function animate() {
 
         if (direction.length() > 0) direction.normalize();
 
-        // Send input to server
-        const yaw = camera.rotation.y;
-        socket.emit('input', {
+        // Speed calculation
+        let speed = 8;
+        if (moveState.sprint) speed = 12;
+        else if (moveState.crouch) speed = 4;
+
+        // CLIENT-SIDE PREDICTION: Apply movement locally immediately
+        predictedPosition.x += direction.x * speed * DELTA;
+        predictedPosition.z += direction.z * speed * DELTA;
+
+        // Update camera immediately (feels responsive)
+        updateCamera(predictedPosition);
+
+        // Update local mesh immediately
+        if (myPlayerMesh) {
+            myPlayerMesh.mesh.position.copy(predictedPosition);
+            myPlayerMesh.mesh.position.y -= 1;
+        }
+
+        // Store input with sequence number for reconciliation
+        inputSequence++;
+        const input = {
+            seq: inputSequence,
             x: direction.x,
             z: direction.z,
+            speed: speed,
             jump: moveState.jump,
             sprint: moveState.sprint,
             crouch: moveState.crouch,
-            yaw: yaw
-        });
+            yaw: camera.rotation.y
+        };
+        pendingInputs.push(input);
+
+        // Keep buffer from growing too large
+        if (pendingInputs.length > 60) {
+            pendingInputs.shift();
+        }
+
+        // Send input to server
+        socket.emit('input', input);
     }
 
     renderer.render(scene, camera);

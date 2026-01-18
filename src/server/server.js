@@ -106,8 +106,9 @@ io.on('connection', (socket) => {
     socket.on('input', (data) => {
         if (players[socket.id]) {
             players[socket.id].input = data;
-            // Update yaw immediately from input as it doesn't need physics simulation
             players[socket.id].yaw = data.yaw || 0;
+            // Track last processed sequence number for reconciliation
+            players[socket.id].lastSeq = data.seq || 0;
         }
     });
 
@@ -130,7 +131,8 @@ function getPlayersState() {
             quaternion: players[id].body.quaternion,
             color: players[id].color,
             yaw: players[id].yaw,
-            crouch: players[id].input.crouch || false
+            crouch: players[id].input.crouch || false,
+            seq: players[id].lastSeq || 0  // Send back last processed sequence
         };
     }
     return state;
