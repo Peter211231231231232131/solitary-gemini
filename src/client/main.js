@@ -316,8 +316,9 @@ socket.on('playerJoined', (data) => {
         addPlayer(data.id, data.position, data.color);
     }
 });
-removePlayer(id);
-    });
+socket.on('playerLeft', (id) => {
+    removePlayer(id);
+});
 
 // Client-Side Prediction State
 let inputSequence = 0;
