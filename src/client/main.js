@@ -13,6 +13,7 @@ scene.fog = new THREE.Fog(0x87CEEB, 0, 50);
 // Camera
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.y = 1.6; // Eye level
+camera.rotation.order = 'YXZ'; // Standard for FPS
 
 // Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -111,10 +112,10 @@ if (isMobile) {
         const turn = data.vector.x;
 
         // Reset state
-        moveState.forward = forward > 0.5;
-        moveState.backward = forward < -0.5;
-        moveState.left = turn < -0.5;
-        moveState.right = turn > 0.5;
+        moveState.forward = forward > 0.1;
+        moveState.backward = forward < -0.1;
+        moveState.left = turn < -0.1;
+        moveState.right = turn > 0.1;
     });
 
     manager.on('end', () => {
@@ -251,7 +252,7 @@ const clock = new THREE.Clock();
 function animate() {
     requestAnimationFrame(animate);
 
-    if (controls.isLocked) {
+    if (controls.isLocked || isMobile) {
         // Calculate movement direction relative to camera
         const direction = new THREE.Vector3();
         const front = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
