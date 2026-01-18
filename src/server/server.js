@@ -2,8 +2,16 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import * as CANNON from 'cannon-es';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distPath = path.join(__dirname, '../../dist');
 
 const app = express();
+
+app.use(express.static(distPath));
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
