@@ -284,6 +284,7 @@ function getPlayersState() {
 }
 
 // Fixed timestep loop
+let tickCount = 0;
 setInterval(() => {
     // Apply inputs & Ball logic
     for (const id in players) {
@@ -350,7 +351,11 @@ setInterval(() => {
         }
     });
 
-    io.emit('state', getPlayersState());
+    // Send state every 2nd tick (30Hz) to reduce bandwidth/lag
+    tickCount++;
+    if (tickCount % 2 === 0) {
+        io.emit('state', getPlayersState());
+    }
 }, 1000 * TIMESTEP);
 
 httpServer.listen(PORT, () => {
