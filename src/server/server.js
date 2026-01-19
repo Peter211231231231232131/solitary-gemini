@@ -78,24 +78,7 @@ hoops.forEach(hoop => {
     world.addBody(bbBody);
     obstacles.push({ position: bbBody.position, size: bbSize, id: `${hoop.id}_bb` });
 
-    // Rim (Simplified as a ring of boxes)
-    const rimRadius = 0.4;
-    const rimThickness = 0.05;
-    const segments = 8;
-    for (let i = 0; i < segments; i++) {
-        const theta = (i / segments) * Math.PI * 2;
-        const rimPartSize = new CANNON.Vec3(0.05, 0.05, 0.15);
-        const rimPartShape = new CANNON.Box(rimPartSize);
-        const rimPartBody = new CANNON.Body({ mass: 0, material: defaultMaterial });
-        rimPartBody.addShape(rimPartShape);
-        const rimX = hoop.position.x + (hoop.team === 1 ? 0.4 : -0.4) + Math.cos(theta) * rimRadius;
-        const rimZ = hoop.position.z + Math.sin(theta) * rimRadius;
-        rimPartBody.position.set(rimX, hoop.position.y, rimZ);
-        rimPartBody.quaternion.setFromEuler(0, -theta, 0);
-        rimPartBody.collisionFilterGroup = GROUP_STATIC;
-        rimPartBody.collisionFilterMask = GROUP_BALL;
-        world.addBody(rimPartBody);
-    }
+    // Note: Removed rim colliders to make scoring easier
 });
 
 // Basketball
@@ -115,8 +98,8 @@ world.addBody(ballBody);
 
 // Ball/Ground Contact
 const ballGroundContact = new CANNON.ContactMaterial(ballMaterial, defaultMaterial, {
-    friction: 0.4,
-    restitution: 0.8 // Bouncy!
+    friction: 0.5,
+    restitution: 0.5 // Less bouncy for better control
 });
 world.addContactMaterial(ballGroundContact);
 
@@ -350,7 +333,7 @@ setInterval(() => {
     hoops.forEach(hoop => {
         const dist = ballBody.position.distanceTo(new CANNON.Vec3(hoop.position.x, hoop.position.y, hoop.position.z));
         // If ball is very close to hoop center and moving down
-        if (dist < 0.6 && ballBody.velocity.y < 0) {
+        if (dist < 1.2 && ballBody.velocity.y < 0) {
             if (hoop.team === 1) scores.team2++;
             else scores.team1++;
 
