@@ -228,15 +228,23 @@ controls.addEventListener('unlock', () => {
 
 // Shooting & Stealing Input
 const raycaster = new THREE.Raycaster();
+let shootChargeStart = 0;
+
 document.addEventListener('mousedown', (e) => {
     if (isLoggedIn && controls.isLocked && e.button === 0) {
-        // If I don't have the ball, try to steal
+        shootChargeStart = Date.now();
+    }
+});
+
+document.addEventListener('mouseup', (e) => {
+    if (isLoggedIn && controls.isLocked && e.button === 0) {
+        const chargeTime = Math.min(Date.now() - shootChargeStart, 1000);
+        const power = 0.5 + (chargeTime / 1000) * 0.5;
+
         const ballState = currentGameState ? currentGameState.ball : null;
         if (ballState && ballState.owner !== myId) {
-            // Check if we are aiming at the owner
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
 
-            // Get all player meshes
             const playerMeshes = Object.entries(players).map(([id, p]) => {
                 p.mesh.userData = { playerId: id };
                 return p.mesh;
@@ -244,7 +252,6 @@ document.addEventListener('mousedown', (e) => {
 
             const intersects = raycaster.intersectObjects(playerMeshes, true);
             if (intersects.length > 0) {
-                // Find top level humanoid mesh
                 let obj = intersects[0].object;
                 while (obj.parent && !obj.userData.playerId) {
                     obj = obj.parent;
@@ -254,12 +261,13 @@ document.addEventListener('mousedown', (e) => {
                     socket.emit('steal', { targetId: obj.userData.playerId });
                 }
             } else {
-                // Normal shoot if we have it, or just empty click
-                socket.emit('shoot', { yaw: camera.rotation.y, pitch: camera.rotation.x });
+                socket.emit('shoot', { yaw: camera.rotation.y, pitch: camera.rotation.x, power: power });
             }
         } else {
-            socket.emit('shoot', { yaw: camera.rotation.y, pitch: camera.rotation.x });
+            socket.emit('shoot', { yaw: camera.rotation.y, pitch: camera.rotation.x, power: power });
         }
+
+        shootChargeStart = 0;
     }
 });
 

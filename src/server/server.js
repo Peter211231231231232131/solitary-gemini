@@ -194,9 +194,11 @@ io.on('connection', (socket) => {
             // Use client's yaw and pitch for aim-based shooting
             const yaw = data.yaw !== undefined ? data.yaw : p.yaw;
             const pitch = data.pitch !== undefined ? data.pitch : 0;
+            const power = data.power !== undefined ? Math.max(0.5, Math.min(1.0, data.power)) : 0.75;
 
             // Calculate 3D aim direction
-            const shootForce = 15;
+            const baseForce = 12;
+            const shootForce = baseForce + (power * 8); // 12 to 20 based on power
             const cosPitch = Math.cos(pitch);
             const sinPitch = Math.sin(pitch);
 
@@ -215,7 +217,7 @@ io.on('connection', (socket) => {
 
             ballBody.velocity.set(
                 forward.x * shootForce,
-                forward.y * shootForce + 3, // Add a slight upward arc
+                forward.y * shootForce + 2 + (power * 2), // Variable arc based on power
                 forward.z * shootForce
             );
 
