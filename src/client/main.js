@@ -589,7 +589,8 @@ socket.on('state', (state) => {
         // If I'm NOT the owner, sync ball pos from server
         // If I AM the owner, the local loop handles positioning for me (less jitter)
         if (!isOwner) {
-            ballMesh.position.copy(state.ball.position);
+            const targetPos = new THREE.Vector3().copy(state.ball.position);
+            ballMesh.position.lerp(targetPos, 0.3);
         } else {
             // Owner prediction: ball stays in front of us
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);

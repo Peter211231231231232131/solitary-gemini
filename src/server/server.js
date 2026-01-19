@@ -159,7 +159,7 @@ io.on('connection', (socket) => {
 
         body.linearDamping = 0.0;
         body.collisionFilterGroup = GROUP_PLAYER;
-        body.collisionFilterMask = GROUP_STATIC | GROUP_BALL;
+        body.collisionFilterMask = GROUP_STATIC | GROUP_BALL | GROUP_PLAYER;
         world.addBody(body);
 
         const name = data.name || "Player";
