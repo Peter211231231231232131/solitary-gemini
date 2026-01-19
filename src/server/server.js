@@ -191,15 +191,22 @@ io.on('connection', (socket) => {
             ballBody.collisionFilterGroup = GROUP_BALL;
             ballBody.collisionFilterMask = GROUP_PLAYER | GROUP_STATIC;
 
-            // Release ball at player's head height + forward
+            // Use client's yaw and pitch for aim-based shooting
+            const yaw = data.yaw !== undefined ? data.yaw : p.yaw;
+            const pitch = data.pitch !== undefined ? data.pitch : 0;
+
+            // Calculate 3D aim direction
+            const shootForce = 15;
+            const cosPitch = Math.cos(pitch);
+            const sinPitch = Math.sin(pitch);
+
             const forward = new CANNON.Vec3(
-                -Math.sin(p.yaw),
-                0, // Horizontal forward
-                -Math.cos(p.yaw)
+                -Math.sin(yaw) * cosPitch,
+                -sinPitch,
+                -Math.cos(yaw) * cosPitch
             );
 
-            // Vertical component from client yaw/pitch if we had it, but let's use a fixed arc for now
-            const shootForce = 12;
+            // Release ball at player's head height + forward
             ballBody.position.set(
                 p.body.position.x + forward.x * 0.7,
                 p.body.position.y + 0.8,
@@ -208,7 +215,7 @@ io.on('connection', (socket) => {
 
             ballBody.velocity.set(
                 forward.x * shootForce,
-                shootForce * 0.6, // Arc upward
+                forward.y * shootForce + 3, // Add a slight upward arc
                 forward.z * shootForce
             );
 

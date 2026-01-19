@@ -255,10 +255,10 @@ document.addEventListener('mousedown', (e) => {
                 }
             } else {
                 // Normal shoot if we have it, or just empty click
-                socket.emit('shoot');
+                socket.emit('shoot', { yaw: camera.rotation.y, pitch: camera.rotation.x });
             }
         } else {
-            socket.emit('shoot');
+            socket.emit('shoot', { yaw: camera.rotation.y, pitch: camera.rotation.x });
         }
     }
 });
